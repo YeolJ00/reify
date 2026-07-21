@@ -22,6 +22,36 @@ physically-realizable part of an observed motion. See `CLAUDE.md` for the full p
   - grad, 80 iters: recovered **15.088** (0.59% err), 104 s.
   - cem, 15 iters x pop 16: recovered **14.992** (0.05% err), 90 s.
 
+## M3 — full theta + identifiability (2026-07-21)
+
+theta = [wind a0, a1, a2 (Fourier forcing), gravity_z, log tri_ke, log tri_kd,
+log edge_ke, log mass], all differentiable through the rollout
+(`src/sim/theta_sim.py`: theta is written into the model arrays by warp kernels
+inside the tape; newton 1.4.0 solvers read gravity/materials from arrays at
+every launch, so adjoints flow).
+
+- `scripts/recover_full.py [--method grad|cem] [--init-from <npz>]`
+- `scripts/probe_identifiability.py` — FD Hessian + 2D loss slice at theta_true.
+
+Findings:
+- **The adjoint is correct but the landscape is rugged far from the target**:
+  FD-vs-tape matches to a few % near theta_true (and for dominant components
+  anywhere), but far away FD does not converge as h shrinks — chaotic flapping
+  makes the local gradient noisy. Plain Adam from a far init stalls
+  (loss plateaus ~3e-2); CEM gets into the basin (~1.5e-3); the intended
+  pipeline is **CEM (global) -> Adam (polish)**.
+- **Identifiability (Gauss-Newton J^T J at theta_true, PSD)**: condition number
+  3.3e5. Strong: log_mass, log_tri_kd (RMS sensitivity ~0.4, their ratio is the
+  stiffest direction), then log_tri_ke, gravity_z. Sloppy (50-250x weaker): all
+  three wind-forcing coefficients and log_edge_ke (bending ~unobservable).
+  Forcing does not exactly alias with material, but lives in the near-null
+  subspace -> wind wants a prior/posterior treatment, materials support a point
+  estimate. (The naive FD loss-Hessian shows spurious negative eigenvalues —
+  the basin is narrower than the FD step in stiff directions; use the GN form.)
+- **Stability cliff in theta-space**: reducing mass ~10% below true (at fixed
+  dt) explodes the semi-implicit sim — the loss landscape contains a numerical
+  cliff, visible in the 2D slice. CEM tolerates it (NaN sorts last).
+
 ## Setup
 
 ```bash

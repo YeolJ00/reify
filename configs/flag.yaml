@@ -29,3 +29,23 @@ wind:
   strength: 15.0          # m/s, the parameter to recover
   direction: [1.0, 0.4, 0.15]   # normalized in code; mostly along the flag, some cross-flow
   drag_coeff: 5.0         # fixed (not optimized in M1); total wind force ~ comparable to weight
+
+# M3: full theta vector. Layout: [a0, a1, a2, gravity_z, log_tri_ke, log_tri_kd,
+# log_edge_ke, log_mass]. Wind speed is a low-dim temporal forcing:
+# s(t) = a0 + a1*sin(2*pi*f*t) + a2*cos(2*pi*f*t), direction fixed from `wind` above.
+theta:
+  wind_freq_hz: 1.0
+  true_values:
+    wind: [15.0, 4.0, -3.0]   # a0, a1, a2 (m/s)
+    gravity_z: -9.81
+    tri_ke: 5.0e3
+    tri_kd: 10.0
+    edge_ke: 10.0
+    mass: 0.05                # per-particle (kg)
+  init_values:
+    wind: [10.0, 0.0, 0.0]
+    gravity_z: -8.0
+    tri_ke: 2.0e3
+    tri_kd: 5.0
+    edge_ke: 5.0
+    mass: 0.08
