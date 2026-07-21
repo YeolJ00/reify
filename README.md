@@ -51,6 +51,24 @@ Findings:
 - **Stability cliff in theta-space**: reducing mass ~10% below true (at fixed
   dt) explodes the semi-implicit sim — the loss landscape contains a numerical
   cliff, visible in the 2D slice. CEM tolerates it (NaN sorts last).
+- **Levenberg-Marquardt (FD trajectory Jacobian, `src/optimize/lm.py`) is the
+  workhorse**: it handles the 3e5 conditioning that defeats Adam (uniform steps
+  overshoot stiff directions / undershoot sloppy ones). One run from the far
+  init reached loss 3.3e-8, recovering the target trajectory exactly — but
+  landing on the scaling orbit: mass, tri_ke, tri_kd, wind all off by the SAME
+  factor 1.13, gravity exact (0.02%). Direct empirical proof of the gauge
+  freedom. Needs multi-start: LM is a basin lottery (GPU atomic float
+  nondeterminism alone routes identical runs to different minima; a rerun
+  stalled at 5.5e-4, and LM seeded from the CEM point hit a worse basin).
+- **Gauge fixing works**: `recover_full.py --method lm --fix log_mass` (density
+  known, e.g. from an asset prior) recovers ALL observable params to <4%:
+  wind 0.08/0.99/3.8%, gravity 0.33%, tri_ke 0.22%, tri_kd 0.15%. Only edge_ke
+  collapses (to 0) — consistent with its ~250x-below-leading sensitivity:
+  bending is unobservable in full-trajectory MSE for this scene.
+- **M3 decision (point estimate vs posterior)**: the method needs either a
+  scale anchor (known density/mass -> sharp point estimate) or a posterior over
+  the scaling direction + unobservable bending. Forcing does not alias with
+  material *shape* parameters, but shares the overall scale gauge with them.
 
 ## Setup
 

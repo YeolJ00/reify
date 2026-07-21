@@ -53,10 +53,13 @@ def main():
     ap.add_argument("--config", default=str(REPO / "configs" / "flag.yaml"))
     ap.add_argument("--iters", type=int, default=150)
     ap.add_argument("--lr", type=float, default=0.15)
-    ap.add_argument("--method", choices=["grad", "cem"], default="grad")
+    ap.add_argument("--method", choices=["grad", "cem", "lm"], default="grad")
     ap.add_argument("--skip-fd", action="store_true")
     ap.add_argument("--init-from", default=None,
                     help="npz from a previous run; start from its theta_hat (hybrid CEM->grad)")
+    ap.add_argument("--fix", default=None,
+                    help="comma-separated param names pinned to their TRUE values "
+                         "(gauge fixing, e.g. --fix log_mass for known density)")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -91,6 +94,44 @@ def main():
             fd_sim.rollout()
             fd_loss.compute(fd_sim.frame_states())
             return fd_loss.value()
+
+        if args.method == "lm":
+            from src.optimize.lm import lm_recover
+
+            fixed = []
+            if args.fix:
+                fixed = [THETA_NAMES.index(n) for n in args.fix.split(",")]
+                theta0[fixed] = theta_true[fixed]  # pinned to known true values
+            free = [i for i in range(THETA_DIM) if i not in fixed]
+
+            n_terms = (target.shape[0] - 1) * target.shape[1]
+            tgt_flat = target[1:].ravel().astype(np.float64) / np.sqrt(n_terms)
+
+            def residual_full(th):
+                fd_sim.set_theta(th)
+                fd_sim.rollout()
+                traj = fd_sim.trajectory()[1:].ravel().astype(np.float64)
+                return traj / np.sqrt(n_terms) - tgt_flat
+
+            def residual_fn(th_free):
+                th = theta0.copy()
+                th[free] = th_free
+                return residual_full(th)
+
+            fd_h = np.array([0.2, 0.2, 0.2, 0.1, 0.04, 0.04, 0.04, 0.04])
+            t0 = time.time()
+            hat_free, lm_hist = lm_recover(residual_fn, theta0[free], fd_h[free],
+                                           iters=args.iters if args.iters < 100 else 25)
+            elapsed = time.time() - t0
+            theta_hat = theta0.copy()
+            theta_hat[free] = hat_free
+            hist_loss = [h["loss"] for h in lm_hist]
+            hist_theta = [theta_hat] * len(lm_hist)
+            best = (loss_at(theta_hat), theta_hat)
+            tag = "lm" + ("_hybrid" if args.init_from else "") + ("_fix" if args.fix else "")
+            report(cfg, theta_true, theta0, best, hist_loss, hist_theta, elapsed,
+                   loss_at, tag=tag)
+            return 0
 
         if args.method == "cem":
             from src.optimize.cem import cem_nd
