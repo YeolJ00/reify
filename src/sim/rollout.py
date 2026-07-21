@@ -66,6 +66,25 @@ class FlagSim:
         self.sim_dt = 1.0 / (self.fps * self.substeps)
         self.solver_name = str(sim["solver"])
 
+        # must be set before any kernel module compiles and before solver
+        # construction (newton solvers read wp.config.deterministic in __init__).
+        # Our own atomic_add kernels (wind, loss) need per-module opt-in, same
+        # as newton does for its solver kernel modules.
+        if sim.get("deterministic", False):
+            wp.config.deterministic = wp.DeterministicMode.RUN_TO_RUN
+            opts = {"deterministic": wp.DeterministicMode.RUN_TO_RUN, "deterministic_max_records": 0}
+            import src.motion.loss as _loss_mod
+            import src.sim.rollout as _rollout_mod
+
+            wp.set_module_options(opts, module=_rollout_mod)
+            wp.set_module_options(opts, module=_loss_mod)
+            try:
+                import src.sim.theta_sim as _theta_mod
+
+                wp.set_module_options(opts, module=_theta_mod)
+            except ImportError:
+                pass
+
         self.model = build_flag_model(cfg, requires_grad=requires_grad)
 
         if self.solver_name == "vbd":

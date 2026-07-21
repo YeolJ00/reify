@@ -8,6 +8,9 @@ sim:
   substeps: 32            # sim_dt = 1/(fps*substeps) ~= 5.2e-4 s
   solver: semi_implicit   # semi_implicit | vbd
   vbd_iterations: 10
+  deterministic: false    # run-to-run bitwise reproducibility; costs 7x rollout time
+                          # (0.40s -> 2.81s). Turn on for verification/repro runs;
+                          # leave off for optimization (multi-start handles variance).
 
 cloth:
   # grid lies in local XY, rotated +90 deg about X so it hangs in the world X-Z plane
@@ -49,3 +52,19 @@ theta:
     tri_kd: 5.0
     edge_ke: 5.0
     mass: 0.08
+
+# M4 stage 1: target observed through render -> track, not 3D vertices.
+m4:
+  camera:                 # ~30 deg azimuth so both in-plane and cross-flow motion project
+    eye: [2.4, -2.6, 2.1]
+    target: [0.5, 0.1, 1.55]
+    fov_deg: 40
+    width: 512
+    height: 512
+  render:
+    texture_seed: 7       # static per-triangle grayscale texture (features for LK)
+  track:
+    max_corners: 300
+    quality: 0.01
+    min_dist: 6
+    fb_max_px: 1.0        # forward-backward LK gate (step-8 rejection at tracker level)

@@ -60,6 +60,9 @@ def main():
     ap.add_argument("--fix", default=None,
                     help="comma-separated param names pinned to their TRUE values "
                          "(gauge fixing, e.g. --fix log_mass for known density)")
+    ap.add_argument("--starts", type=int, default=1,
+                    help="multi-start count for --method lm (start 0 = the config init, "
+                         "others are seeded perturbations); best final loss wins")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -119,15 +122,37 @@ def main():
                 return residual_full(th)
 
             fd_h = np.array([0.2, 0.2, 0.2, 0.1, 0.04, 0.04, 0.04, 0.04])
+            # perturbation scale for extra starts (same units as the params)
+            start_sigma = np.array([3.0, 2.0, 2.0, 1.0, 0.5, 0.5, 0.5, 0.3])
+            rng = np.random.default_rng(cfg["seed"])
+            lm_iters = args.iters if args.iters < 100 else 25
+
             t0 = time.time()
-            hat_free, lm_hist = lm_recover(residual_fn, theta0[free], fd_h[free],
-                                           iters=args.iters if args.iters < 100 else 25)
+            runs = []
+            for s in range(args.starts):
+                th_start = theta0[free].copy()
+                if s > 0:
+                    th_start = th_start + rng.normal(0, 1, len(free)) * start_sigma[free]
+                print(f"--- start {s}/{args.starts}")
+                hat_free, lm_hist = lm_recover(residual_fn, th_start, fd_h[free].copy(),
+                                               iters=lm_iters)
+                th_hat = theta0.copy()
+                th_hat[free] = hat_free
+                L_hat = loss_at(th_hat)
+                runs.append({"start": s, "loss": L_hat, "theta": th_hat, "hist": lm_hist})
+                print(f"--- start {s} final loss {L_hat:.6e}")
             elapsed = time.time() - t0
-            theta_hat = theta0.copy()
-            theta_hat[free] = hat_free
-            hist_loss = [h["loss"] for h in lm_hist]
-            hist_theta = [theta_hat] * len(lm_hist)
-            best = (loss_at(theta_hat), theta_hat)
+
+            runs.sort(key=lambda r: r["loss"] if np.isfinite(r["loss"]) else np.inf)
+            if args.starts > 1:
+                print("\nmulti-start summary (sorted):")
+                for r in runs:
+                    print(f"  start {r['start']}  final loss {r['loss']:.6e}")
+            winner = runs[0]
+            theta_hat = winner["theta"]
+            hist_loss = [h["loss"] for h in winner["hist"]]
+            hist_theta = [theta_hat] * len(hist_loss)
+            best = (winner["loss"], theta_hat)
             tag = "lm" + ("_hybrid" if args.init_from else "") + ("_fix" if args.fix else "")
             report(cfg, theta_true, theta0, best, hist_loss, hist_theta, elapsed,
                    loss_at, tag=tag)

@@ -4,6 +4,10 @@ Per-instance inverse simulation from video priors: recover physics parameters θ
 roughly-placed simulation assets so a differentiable Newton simulation reproduces the
 physically-realizable part of an observed motion. See `CLAUDE.md` for the full plan.
 
+**Docs:** `docs/report.html` — self-contained milestone report (open in a browser);
+`docs/PROJECT_LOG.md` — technical log for the working agent. Regenerate the HTML with
+`python docs/build_report.py` after new results.
+
 ## Status — M0/M1 complete (2026-07-21)
 
 - **M0**: cloth flag (25×17 particles) pinned on the hoist edge, constant-wind
