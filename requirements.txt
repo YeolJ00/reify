@@ -1,0 +1,6 @@
+# conda env "warp", python 3.11 — versions verified working on 8x RTX A6000, CUDA 12.9
+newton==1.4.0
+warp-lang==1.15.0
+numpy==2.4.6
+matplotlib==3.11.1
+pyyaml==6.0.3

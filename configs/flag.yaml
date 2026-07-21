@@ -1,0 +1,31 @@
+# M0/M1 scene: cloth flag pinned on left edge, constant wind on faces.
+seed: 42
+device: "cuda:0"
+
+sim:
+  fps: 60
+  num_frames: 60          # 1.0 s
+  substeps: 32            # sim_dt = 1/(fps*substeps) ~= 5.2e-4 s
+  solver: semi_implicit   # semi_implicit | vbd
+  vbd_iterations: 10
+
+cloth:
+  # grid lies in local XY, rotated +90 deg about X so it hangs in the world X-Z plane
+  dim_x: 24               # cells along the flag (world +X)
+  dim_y: 16               # cells up the hoist (world +Z after rotation)
+  cell: 0.05              # meters -> flag is 1.2 m x 0.8 m
+  mass: 0.05              # per-particle mass (kg)
+  # stability (semi-implicit, explicit forces): need kd/m*dt << 1 and dt*sqrt(ke/m) < ~0.3
+  tri_ke: 5.0e3
+  tri_ka: 5.0e3
+  tri_kd: 10.0
+  edge_ke: 10.0
+  edge_kd: 0.1
+  fix_left: true          # pin the hoist edge (the "pole")
+
+wind:
+  # theta for M1/M2: scalar strength of a constant wind. Force on each triangle is
+  # the aerodynamic normal-pressure model: f = drag * area * dot(n, v_wind - v_cloth) * n
+  strength: 15.0          # m/s, the parameter to recover
+  direction: [1.0, 0.4, 0.15]   # normalized in code; mostly along the flag, some cross-flow
+  drag_coeff: 5.0         # fixed (not optimized in M1); total wind force ~ comparable to weight
