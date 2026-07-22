@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 outputs/
 .ipynb_checkpoints/
+assets/rigid/
+assets/cloth/
+assets/scenes/
