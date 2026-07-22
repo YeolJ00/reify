@@ -241,6 +241,38 @@ Cosmos3 to be scored if/when a ~40 GB GPU frees up.
 
 Then: real-asset variant (towel on table) with Wan as the backend.
 
+## Cosmos3 serving: BLOCKED on GPU driver (2026-07-22, investigated to root cause)
+
+Dependency chain, each link verified against actual wheels:
+- Cosmos3 model code exists only in `vllm-omni >= 0.22` (0.22 released 2026-06-08,
+  after Cosmos3's 05-31 launch; confirmed `vllm_omni/diffusion/models/cosmos3/` in
+  the 0.24 wheel). vllm-omni declares NO vllm pin in metadata (runtime coupling).
+- Every `vllm` PyPI wheel from **0.20.0 onward links libcudart.so.13** (CUDA 13);
+  the last CUDA-12 build is **0.19.1** (March, pre-Cosmos3). Checked by readelf on
+  the actual .so files. wheels.vllm.ai now hosts cu130 only (no cu128 variants).
+- This box: driver 575.57.08 = CUDA 12.9. torch cu130 refuses to initialize
+  ("driver too old"). torch 2.11+cu128 works fine.
+
+Unblock paths: (a) **driver upgrade to >= 580 (CUDA 13)** — admin action on the
+shared box; or (b) build vllm >= 0.22 from source against cu128 torch in the
+`cosmos` env (torch 2.11.0+cu128 already installed there and CUDA-verified) —
+multi-hour compile, uncertain. Weights (33 GB) + HTTP client remain ready.
+
+**Incident + fix**: `pip install vllm` into the `video` env silently replaced
+torch 2.13+cu126 with 2.11+cu130 (unusable on this driver) and broke the
+diffusers stack mid-flight (also cost us the GPU 0 claim — another user grabbed
+it during the breakage window). Restored: vllm/vllm-omni uninstalled from
+`video`, torch 2.13+cu126 + torchaudio reinstalled, Wan/Hunyuan pipelines
+verified. RULE: **never install vllm into the diffusers env** — it force-swaps
+torch. Serving stacks get their own env (`cosmos`).
+
+## GPU holds (2026-07-22)
+
+`scripts/gpu_hold.py` claims freed GPUs (~42 GiB each) and idles until
+`touch /tmp/release_gpu<N>`. Currently holding GPUs 1-4. A Monitor watches
+nvidia-smi for newly freed GPUs (<1.5 GB used). GPU 0 freed but was lost to
+another user's job within the env-breakage window.
+
 ## Open items / next
 
 - M4 stage 2: real/generated video — needs an i2v model choice (step 3) + initial-frame
