@@ -5,7 +5,7 @@ Release cleanly by creating the release file:  touch /tmp/release_gpu<N>
 (N = the *physical* GPU index passed via --gpu).
 
 Run with the video env:
-  CUDA_VISIBLE_DEVICES=<N> python scripts/gpu_hold.py --gpu <N> [--gib 40]
+  CUDA_VISIBLE_DEVICES=<N> python scripts/run_gpu.py --gpu <N> [--gib 40]
 """
 
 import argparse
@@ -36,14 +36,14 @@ def main():
             held_b += chunk_b
         except torch.cuda.OutOfMemoryError:
             break
-    print(f"[gpu_hold] gpu {args.gpu}: holding {held_b / (1 << 30):.1f} GiB "
+    print(f"[run_gpu] gpu {args.gpu}: holding {held_b / (1 << 30):.1f} GiB "
           f"(pid {os.getpid()}). Release: touch /tmp/release_gpu{args.gpu}", flush=True)
 
     release = Path(f"/tmp/release_gpu{args.gpu}")
     while not release.exists():
         time.sleep(5)
     release.unlink(missing_ok=True)
-    print(f"[gpu_hold] gpu {args.gpu}: released", flush=True)
+    print(f"[run_gpu] gpu {args.gpu}: released", flush=True)
 
 
 if __name__ == "__main__":

@@ -268,7 +268,7 @@ torch. Serving stacks get their own env (`cosmos`).
 
 ## GPU holds (2026-07-22)
 
-`scripts/gpu_hold.py` claims freed GPUs (~42 GiB each) and idles until
+`scripts/run_gpu.py` claims freed GPUs (~42 GiB each) and idles until
 `touch /tmp/release_gpu<N>`. Currently holding GPUs 1-4. A Monitor watches
 nvidia-smi for newly freed GPUs (<1.5 GB used). GPU 0 freed but was lost to
 another user's job within the env-breakage window.
@@ -281,3 +281,50 @@ another user's job within the env-breakage window.
 - Occlusion in the renderer is painter-sorted only; folds may confuse LK on harsher
   motions — the fb gate currently absorbs this by killing tracks.
 - eval/ metrics harness still a stub; formalize recovery-error metrics across seeds.
+
+## M5 — real-asset rigid-body inverse (2026-07-22)
+
+First inverse recovery on a **real scanned object** (GSO teapot, decimated to
+1500 faces). Drops from 0.35 m with an initial launch velocity + spin onto a
+ground plane, falls / bounces (restitution) / slides (friction). We recover the
+object's physical attributes from its pose trajectory. This is the "real asset
+data" (`[scale]`) milestone, single-object.
+
+theta = [log_density, mu, restitution, v0(3), w0(3)] (9). Contact material and
+mass/inertia are mutated in place on the finalized model (no rebuild per eval):
+`shape_material_mu`, `shape_material_restitution`, `body_mass`/`body_inv_mass`/
+`body_inertia`/`body_inv_inertia` (mass & inertia scale linearly with density).
+
+Newton 1.4.0 rigid API facts (verified):
+- `body_q` = transform (pos xyz + quat xyzw); `body_qd` = spatial velocity,
+  **(linear v[0:3], angular w[3:6])** — NOT the screw-theory (w, v) order.
+  Verified empirically (`qd=[1,0,0,0,0,0]` translates in x; `[0,0,0,1,0,0]`
+  rotates about x). Getting this wrong made the object launch upward.
+- `SolverXPBD(model, iterations, enable_restitution=True)`; contact via
+  `CollisionPipeline`; ground friction via `add_ground_plane(cfg=ShapeConfig(mu=))`.
+- Observation = 8 bbox-corner marker world positions per frame (translation +
+  orientation), a rigid analog of the cloth vertex trajectory.
+
+**M5.1 gradient check** (`scripts/check_grad_rigid.py`): XPBD tape gradient
+through contact is **exactly zero** (FD is nonzero) — same as VBD cloth. Recovery
+uses the solver-agnostic FD-Jacobian LM. (Validates the M1 architectural bet:
+building LM/CEM paid off again.)
+
+**Density is a (near-)gauge freedom — the rigid analog of the cloth scale gauge.**
+In ideal rigid contact against a fixed plane, both free-fall (a=g) and the
+collision laws (restitution, Coulomb friction as velocity/impulse ratios) are
+mass-independent, so the trajectory should be density-invariant. Empirically,
+x4 density perturbs markers by only ~9 mm over a ~0.2 m trajectory — weakly
+observable, and that residual observability is a *numerical artifact* of XPBD's
+compliant contact (fixed contact stiffness not scaled with mass), not real
+physics. Prediction: density is the least-identifiable parameter; friction and
+restitution are observable only through their contact events (sliding / bounce);
+initial velocities are strongly observable from the early free-flight arc.
+
+<!-- M5_RESULTS -->
+
+Perf: rollout 8.7 s (72 frames x 24 substeps, XPBD 15 iters). LM ~160 s/iter
+(18 rollouts/Jacobian). **Multi-start run parallelized across GPUs 1-4** (one
+start per GPU) via `scripts/recover_rigid.py --start K` + `--aggregate` — the
+held GPUs put to productive use. `scripts/run_gpu.py` (was gpu_hold.py) claims/
+holds idle GPUs; release with `touch /tmp/release_gpu<N>`.
