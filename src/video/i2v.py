@@ -85,16 +85,20 @@ class HunyuanI2V:
         self.pipe = HunyuanVideo15ImageToVideoPipeline.from_pretrained(
             HUNYUAN_REPO, torch_dtype=torch.bfloat16)
         self.pipe.enable_model_cpu_offload(device=device)
+        # 49-frame 480p peaks ~37 GB without these on a shared GPU
+        self.pipe.vae.enable_tiling()
         self.fps = 24
 
     def generate(self, image, prompt, num_frames=49, seed=0, height=480, width=480,
-                 steps=30, guidance=6.0):
+                 steps=30, guidance=None):
+        # this pipeline takes resolution from the input image (no height/width kwargs)
+        if image.size != (width, height):
+            image = image.resize((width, height))
         g = self.torch.Generator(device="cpu").manual_seed(seed)
         out = self.pipe(
             image=image, prompt=prompt + STATIC_CAMERA_SUFFIX,
-            negative_prompt=NEGATIVE_PROMPT, height=height, width=width,
-            num_frames=num_frames, num_inference_steps=steps,
-            guidance_scale=guidance, generator=g,
+            negative_prompt=NEGATIVE_PROMPT,
+            num_frames=num_frames, num_inference_steps=steps, generator=g,
         )
         return _to_uint8_frames(out.frames[0])
 

@@ -183,9 +183,63 @@ residuals through `project_bary_points_kernel` (differentiable pinhole, FD-verif
 - Weights ready: Wan2.2-TI2V-5B (33 GB) and HunyuanVideo-1.5-480p_i2v complete
   in HF_HOME; Cosmos3-Nano downloading.
 
-Next: bake-off harness — for each backend x seed: generate from I0(theta_true),
-track, recover theta (multi-start LM, --fix log_mass), score by theta error +
-2D residual. Then the real-asset variant (towel on table).
+## Bake-off (2026-07-22, `scripts/run_bakeoff.py`)
+
+Metric correction vs the original plan: the i2v model only sees a static I0 and
+CANNOT know theta_true — so we score by **distance to the physical manifold**
+(post-fit 2D RMS after multi-start LM projection onto our Newton family, sim
+retimed to 24 fps / 48 frames / substeps 96 = dt 4.3e-4), plus trackability and
+motion magnitude (near-static videos fit trivially -> flagged degenerate below
+20 px median motion). Recovered theta is descriptive: it reveals what physics
+the video model *implied*.
+
+Wan2.2-TI2V-5B leg (3 seeds):
+- seed 0: 278 tracks (96 %), motion 138 px, fit RMS **14.7 px**
+- seed 1: 189 tracks (65 %), motion 83 px, fit RMS **12.4 px**
+- seed 2: 71 tracks (25 %), motion 32 px, fit RMS **1.4 px** (calm subset —
+  violent-motion tracks self-reject via the fb gate; step-8 rejection working)
+- Reference: real-sim video fits at 4 px (LK noise floor). Wan's active motion
+  sits ~3x above the manifold.
+- **Implied physics = video-model bias, quantified**: implied gravity
+  -0.6 .. -1.8 m/s^2 across ALL seeds (5-15x weaker than Earth — "dreamy
+  slow-mo cloth"), with inflated wind (24-37 m/s) and stiffness on active
+  seeds. Projection onto the manifold doubles as a physics audit of the
+  generative model. (Caveat: 2 s horizon, fixed 1 Hz forcing, single view.)
+
+Ops notes: vllm-omni pip package exists but needs core `vllm` separately and
+~40 GB free VRAM for Cosmos3-Nano (16B bf16) — blocked on shared-box memory,
+weights + HTTP client ready. vllm-omni also downgrades diffusers 0.39->0.38
+(both our pipelines still present). HunyuanVideo15ImageToVideoPipeline takes
+NO height/width/guidance kwargs (resolution from input image); 49f@480p peaks
+~37 GB -> needs vae tiling + expandable_segments on a shared GPU.
+
+HunyuanVideo-1.5 legs (2 prompt variants, 3 seeds each):
+- **Scene hallucination**: with the original prompt ("...pinned to a pole"), Hunyuan
+  materializes a physical flagpole + tripod stand from frame ~12 and reframes the
+  flag (Wan ignored the same phrase). Mean fit RMS 19.8 px (seed 1: 40 px).
+- Scene-neutral prompt removes the pole but Hunyuan STILL re-stages (cloth drifts
+  to center, rescales, faint clothesline). Tracks survive (79-95 % — LK happily
+  follows rigid drift) but a pinned-edge Newton flag cannot translate -> mean fit
+  RMS **27.0 px** (seed 11: 56 px). Scene drift converts to fit error, not track
+  death: the metric penalizes exactly what breaks the pipeline.
+- Hunyuan's local wrinkle dynamics LOOK more cloth-like than Wan's, but it treats
+  I0 as a suggestion, not a locked camera view. 10x slower than Wan (600 s vs
+  60 s per 49-frame video).
+
+FINAL (Cosmos3 not scored — serving blocked on VRAM/core-vllm):
+
+| backend  | prompt   | mean fit RMS | mean survival | mean motion |
+|----------|----------|--------------|---------------|-------------|
+| wan5b    | default  | **9.46 px**  | 62 %          | 84 px       |
+| hunyuan  | pole     | 19.76 px     | 55 %          | 53 px       |
+| hunyuan  | neutral  | 27.04 px     | 88 %          | 35 px       |
+
+**Verdict: Wan2.2-TI2V-5B is the production i2v backend for M4 stage 2** —
+closest to the physical manifold, zero scene edits, static camera, most motion,
+10x cheapest. Hunyuan disqualified by scene re-staging under both prompts.
+Cosmos3 to be scored if/when a ~40 GB GPU frees up.
+
+Then: real-asset variant (towel on table) with Wan as the backend.
 
 ## Open items / next
 

@@ -193,6 +193,39 @@ density-derived inertia → XPBD + collision): it falls and settles correctly. T
 provide geometry; the physical attributes (density, friction, stiffness…) are exactly
 the θ our pipeline recovers — that is the assetization.</p>
 
+<h2><span class="tag">Bake-off</span> Which i2v model produces <em>physically projectable</em> motion?</h2>
+<p>The video model only sees a static I0 — it cannot know the true physics — so we
+score each model by <b>distance to the physical manifold</b>: after multi-start LM
+projects the generated motion onto our Newton model family, how large is the
+irreducible 2D residual? (Reference: video of a real simulation fits at 4&nbsp;px,
+the tracking noise floor.) Trackability and motion magnitude guard against
+degenerate near-static outputs.</p>
+<table>
+<tr><th>backend</th><th>prompt</th><th>mean fit RMS</th><th>track survival</th><th>motion</th><th>gen. time/clip</th></tr>
+<tr><td><b>Wan 2.2 TI2V-5B</b></td><td>default</td><td><b>9.5 px</b></td><td>62 %</td><td>84 px</td><td>~60 s</td></tr>
+<tr><td>HunyuanVideo 1.5</td><td>default</td><td>19.8 px</td><td>55 %</td><td>53 px</td><td>~600 s</td></tr>
+<tr><td>HunyuanVideo 1.5</td><td>scene-neutral</td><td>27.0 px</td><td>88 %</td><td>35 px</td><td>~600 s</td></tr>
+</table>
+<div class="finding"><b>Verdict: Wan 2.2 TI2V-5B.</b> Closest to the manifold, zero
+scene edits, locked camera, most motion, 10× cheapest. Hunyuan's local cloth wrinkles
+look gorgeous, but it <em>re-stages the scene</em> — with the default prompt it
+hallucinates a physical flagpole + tripod; with a neutral prompt it still re-centers
+and rescales the cloth. LK happily tracks that rigid drift (88&nbsp;% survival!) but a
+pinned Newton flag cannot translate, so scene drift lands in the fit residual — the
+metric punishes exactly what breaks the pipeline. Cosmos3-Nano: weights + client
+ready, unscored (needs ~40&nbsp;GB free VRAM + core vllm on this shared box).</div>
+<div class="finding"><b>Bonus finding — the projection audits the video model's
+physics.</b> Across all Wan seeds, the implied gravity is −0.6 to −1.8&nbsp;m/s² —
+5–15× weaker than Earth. Video models generate "dreamy slow-mo" cloth, and our
+inverse fit measures that bias quantitatively (with correspondingly inflated implied
+wind and stiffness). The pipeline doesn't just consume the motion prior; it
+quantifies how physical it is.</div>
+"""
+    s += img_tag("i2v_hunyuan_contact_sheet.png",
+                 "HunyuanVideo 1.5 with the default prompt: pixel-faithful first frame, then a "
+                 "hallucinated flagpole + tripod appears and the flag is reframed — scene re-staging "
+                 "that breaks frame-0-anchored geometry.")
+    s += """
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
