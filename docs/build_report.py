@@ -166,6 +166,33 @@ residuals</b> through a differentiable pinhole projection (gradient FD-verified)
                  "M4 stage 1 — left: rendered frame 0 with detected features; middle: last frame, "
                  "LK tracks (red) vs recovered-θ simulation reprojected (cyan); right: LM loss.")
     s += """
+<h2><span class="tag">M4·2</span> Stage 2 groundwork: generated video as the motion prior</h2>
+<p>Three i2v candidates are downloaded and wrapped behind one interface
+(<code>src/video/i2v.py</code>): <b>Wan 2.2 TI2V-5B</b> (first-frame faithfulness),
+<b>HunyuanVideo 1.5 480p-i2v</b> (reputed best cloth/physics motion), and
+<b>Cosmos3-Nano</b> (NVIDIA physical-AI omnimodel, via vLLM-Omni). Selection will be a
+bake-off scored by our own downstream metric — θ-recovery error on scenes with known
+ground truth — since public physics benchmarks measure the wrong thing for us.</p>
+<div class="finding"><b>Wan plumbing test passed.</b> Generating from our rendered
+initial frame: first-frame fidelity |f0−I0| = 1.1/255, camera fully static, plausible
+and diverse flag motion across seeds — and our LK tracker holds 96&nbsp;% of features
+through gentle-motion clips (25&nbsp;% on the most violent seed, still above the usable
+floor). ~60&nbsp;s per 49-frame video on one A6000.</div>
+"""
+    s += img_tag("i2v_wan5b_contact_sheet.png",
+                 "M4 stage 2 — Wan 2.2 TI2V-5B: conditioning frame I0 (left) and generated frames "
+                 "for three seeds. Static camera, faithful first frame, diverse cloth motion.")
+    s += """
+<h3>Real assets acquired</h3>
+<p>Six scanned rigid objects (Google Scanned Objects, CC-BY 4.0: lion figure, teapot,
+C-clamp, file sorter, triceratops, shark), two cloth-like scans (bath towel, braided
+cushion), and a CC0 table + studio HDRI (PolyHaven) — all metric-scale, loading through
+<code>src/data/assets.py</code>, reproducible via <code>scripts/fetch_assets.sh</code>.
+A scanned object was drop-tested in Newton (decimation → rigid body with
+density-derived inertia → XPBD + collision): it falls and settles correctly. The scans
+provide geometry; the physical attributes (density, friction, stiffness…) are exactly
+the θ our pipeline recovers — that is the assetization.</p>
+
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —

@@ -131,6 +131,62 @@ residuals through `project_bary_points_kernel` (differentiable pinhole, FD-verif
   `outputs/identifiability_gn.npz` for conclusions)
 - `scripts/run_m4_pipeline.py` — M4 stage 1 end-to-end
 
+## M4 stage 2 groundwork (2026-07-22)
+
+- **i2v model choice** (searched current landscape): bake-off of three candidates on
+  OUR metric (render I0 from known theta_true -> generate -> track -> recover;
+  score by theta error). External physics benchmarks are unreliable (Physics-IQ
+  Verified audit found ~58 % contaminated samples). Candidates + rationale:
+  - `Wan-AI/Wan2.2-TI2V-5B-Diffusers` — first-frame faithfulness (our anchor), Apache 2.0,
+    fast plumbing model; `WanImageToVideoPipeline` in diffusers 0.39.
+  - `hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v` — reputed best
+    physical/cloth motion; `HunyuanVideo15ImageToVideoPipeline`.
+  - `nvidia/Cosmos3-Nano` (16B omnimodel, June 2026, OpenMDW) — physics-focused;
+    serves via vLLM-Omni server, client wrapper stubbed pending bake-off.
+  - A6000 = sm_86 Ampere: **no FP8** — bf16 paths only. 480p output is enough
+    (we only extract tracks). Static-camera prompt suffix + anti-camera-motion
+    negative prompt in `src/video/i2v.py`.
+- **conda env `video`** (torch 2.13 cu126, diffusers 0.39) — separate from `warp`.
+  Weights at `HF_HOME=/home/nas5/jooyeolyun/hf_cache` (NAS; local disk too small).
+  NAS I/O saturates during big downloads — expect slow git/du meanwhile.
+- **Real assets** (`scripts/fetch_assets.sh`, binaries gitignored): GSO scans
+  (CC-BY 4.0) — 6 rigid (lion toy 11.5 cm, teapot, clamp, file sorter, dino,
+  shark) + 2 cloth-like (Provence bath towel 36 cm, braided cushion); PolyHaven
+  CC0 wooden table + studio HDRI. All load via trimesh at true metric scale.
+  `scripts/inspect_assets.py` drop-tests in Newton (XPBD + CollisionPipeline):
+  lion settles at z=0.021 — PASSED. Newton 1.4.0 collision API:
+  `pipeline = CollisionPipeline(model); contacts = pipeline.contacts();
+  pipeline.collide(state, contacts)` per step; shape density via
+  `ModelBuilder.ShapeConfig(density=...)` passed as `cfg=`.
+- GSO towel/cushion are *scans of resting cloth* — usable for appearance/geometry
+  reference; cloth sim needs retopology onto a regular grid (or use as rigid).
+
+## M4 stage 2 — Wan plumbing test (2026-07-22) PASSED
+
+`scripts/run_i2v.py --backend wan5b --image outputs/m4_I0.png --seeds 0 1 2`
+(49 frames, 480x480, 35 steps, GPU 0):
+
+- **First-frame faithfulness: |f0 − I0| = 1.1/255** — Wan reproduces the conditioning
+  frame almost exactly; barycentric track attachment on I0 remains valid.
+- **Camera static** across all seeds (prompt suffix + negative prompt worked).
+- **Motion plausible and diverse**: seeds 0/1 gentle waving, seed 2 violent flapping
+  with fold shadows. Texture pattern stays coherent.
+- **LK tracks generated video**: survival 96 % (seed 0) / 65 % / 25 % (seed 2,
+  violent motion + appearance drift — still 75 tracks, above the >=20 floor).
+  Confirms CoTracker upgrade is about the harsh-motion tail, not a blocker.
+- Cost: ~60 s per 49-frame video after a one-time 13.5-min weight load (NAS was
+  saturated by concurrent downloads; loads are fast once NAS is idle).
+- Note: our matplotlib renderer produces a WHITE background (`ax.set_facecolor`
+  is ignored with `axis('off')`) — the prompt said "black background" and Wan
+  followed the image, not the text. Harmless here; align prompt text with the
+  actual render for the bake-off.
+- Weights ready: Wan2.2-TI2V-5B (33 GB) and HunyuanVideo-1.5-480p_i2v complete
+  in HF_HOME; Cosmos3-Nano downloading.
+
+Next: bake-off harness — for each backend x seed: generate from I0(theta_true),
+track, recover theta (multi-start LM, --fix log_mass), score by theta error +
+2D residual. Then the real-asset variant (towel on table).
+
 ## Open items / next
 
 - M4 stage 2: real/generated video — needs an i2v model choice (step 3) + initial-frame
