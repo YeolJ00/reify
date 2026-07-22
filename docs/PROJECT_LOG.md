@@ -321,7 +321,43 @@ physics. Prediction: density is the least-identifiable parameter; friction and
 restitution are observable only through their contact events (sliding / bounce);
 initial velocities are strongly observable from the early free-flight arc.
 
-<!-- M5_RESULTS -->
+### M5 results
+
+7 multi-start LM runs (parallel across GPUs 1-4, ~20-30 min each). **Best fit
+RMS 17.7 mm** — not tight (~10 % of the ~0.15 m trajectory). The story is in
+*which* parameters recover, and it matches the identifiability probe exactly.
+
+Recovered vs true (Gauss-Newton per-param marker sensitivity, m per unit theta):
+
+| param        | true | recovered | sensitivity | verdict |
+|--------------|------|-----------|-------------|---------|
+| v0y          | 0.15 | 0.17      | 0.42        | good (observable) |
+| v0x          | 0.60 | 0.70      | 0.27        | good |
+| w0z          | 1.50 | 1.15      | 0.14        | fair |
+| restitution  | 0.55 | 0.27      | 0.11        | poor |
+| v0z          | 0.00 | 0.06      | 0.11        | ok |
+| mu           | 0.40 | 1.49      | 0.074       | poor |
+| w0y          | 3.00 | 1.44      | 0.044       | poor |
+| density      | 800  | ~0 (floor)| 0.0084      | UNRECOVERABLE (gauge) |
+
+cond number 4.7e4. **Recovery quality tracks observability almost monotonically**:
+the free-flight launch velocities (highest sensitivity) recover to ~15 %; the
+contact-dependent params (restitution, mu) and the roll-axis spin w0y are poor;
+**density is driven to the clamp floor** (sensitivity 50x below v0y) — direct
+confirmation of the density gauge freedom. The recovered COM tracks the true
+free-flight arc and diverges only after the first bounce (see
+`outputs/rigid_recover.png`), i.e. residual concentrates exactly in the
+contact-governed, weakly-observable phase.
+
+**Honest limitation**: the 17.7 mm floor (even with 7 starts) is the rugged
+rigid-contact landscape — bounce timing is chaotic in the parameters, so LM traps
+in local minima; the observable params aren't nailed to sub-mm the way exact-3D
+cloth recovery was (<=0.07 %). Levers: longer / multi-view / multi-drop
+observation to raise contact-param sensitivity, contact-event-aware loss
+weighting, and more starts. The scientific point stands regardless: **you recover
+what the motion observes, and the identifiability probe says in advance what that
+is** — here, launch kinematics yes, material/density no.
+
 
 Perf: rollout 8.7 s (72 frames x 24 substeps, XPBD 15 iters). LM ~160 s/iter
 (18 rollouts/Jacobian). **Multi-start run parallelized across GPUs 1-4** (one

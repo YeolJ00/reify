@@ -86,7 +86,9 @@ class RigidDropSim:
         self.state1 = self.model.state()
 
     def set_theta(self, theta: np.ndarray):
-        density = float(np.exp(theta[0]))
+        # density is a near-gauge direction (see M5 findings): LM drifts it freely,
+        # so clamp to a physical range to avoid mass->0 (division by zero).
+        density = float(np.clip(np.exp(theta[0]), 1.0, 1.0e5))
         scale = density / self.base_density
         mass = self.base_mass * scale
         self.model.body_mass.assign(np.array([mass], dtype=np.float32))

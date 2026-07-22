@@ -276,7 +276,36 @@ free-flight arc.</li>
 own GPU, four in parallel — turning held capacity into a finished multi-start recovery
 in one wall-clock pass.</li>
 </ul>
-<!-- M5_RESULTS -->
+<div class="finding"><b>What recovers is exactly what the motion reveals.</b> Seven
+parallel Levenberg–Marquardt starts reach a best fit of 17.7&nbsp;mm RMS, and the
+per-parameter accuracy tracks the identifiability ranking almost monotonically: the
+launch velocities — written plainly in the free-flight arc — come back to ~15&nbsp;%,
+while the contact-governed parameters (restitution, friction) and the roll-axis spin
+are poor, and <b>density is driven to the floor</b> (its sensitivity sits 50× below the
+leading velocity). The recovered path hugs the true arc until the first bounce, then
+drifts — residual pools precisely in the weakly-observed, contact-driven phase.</div>
+<table>
+<tr><th>parameter</th><th>true</th><th>recovered</th><th>observability</th></tr>
+<tr><td>v0y (launch)</td><td>0.15</td><td>0.17</td><td>highest</td></tr>
+<tr><td>v0x (launch)</td><td>0.60</td><td>0.70</td><td>high</td></tr>
+<tr><td>w0z (spin)</td><td>1.50</td><td>1.15</td><td>fair</td></tr>
+<tr><td>restitution</td><td>0.55</td><td>0.27</td><td>low</td></tr>
+<tr><td>friction μ</td><td>0.40</td><td>1.49</td><td>low</td></tr>
+<tr><td>w0y (roll spin)</td><td>3.00</td><td>1.44</td><td>very low</td></tr>
+<tr><td>density</td><td>800</td><td>≈ 0 (floored)</td><td>gauge — none</td></tr>
+</table>
+"""
+    s += img_tag("rigid_recover.png",
+                 "Left: recovered COM (dashed) tracks the true free-flight arc, then diverges "
+                 "after the bounce. Middle: per-parameter marker sensitivity — density is 50× "
+                 "below the launch velocities. Right: the post-bounce divergence in the x-z plane.")
+    s += """
+<p>The honest limit: even seven starts leave a ~18&nbsp;mm floor, because rigid contact
+makes the loss landscape rugged — bounce timing is chaotic in the parameters, so local
+optimization traps. This is the same ruggedness we saw far from the target in the cloth
+case, now intrinsic to contact. The scientific takeaway is unchanged and is the whole
+point of the project: <b>you can only recover what the motion observes, and the
+identifiability analysis tells you in advance which parameters those are.</b></p>
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
