@@ -21,43 +21,63 @@ def img_tag(name, caption):
             f"<figcaption>{caption}</figcaption></figure>")
 
 
-HEAD = """<!DOCTYPE html>
+CSS = """
+  :root { --fg:#1c2128; --bg:#fcfcfd; --accent:#0b5fa5; --soft:#f1f4f7;
+          --line:#d7dee6; --muted:#5b6672; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6e9ed; --bg:#14181d; --accent:#6ab0e8; --soft:#1d242c;
+            --line:#333d48; --muted:#98a4b0; }
+  }
+  :root[data-theme="dark"] { --fg:#e6e9ed; --bg:#14181d; --accent:#6ab0e8;
+    --soft:#1d242c; --line:#333d48; --muted:#98a4b0; }
+  :root[data-theme="light"] { --fg:#1c2128; --bg:#fcfcfd; --accent:#0b5fa5;
+    --soft:#f1f4f7; --line:#d7dee6; --muted:#5b6672; }
+  body { font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+         color:var(--fg); background:var(--bg);
+         max-width: 900px; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
+  h1 { font-size: 1.7rem; line-height:1.25; letter-spacing:-.015em;
+       border-bottom: 2px solid var(--accent); padding-bottom:.4rem;
+       text-wrap: balance; }
+  h1 + p em { color: var(--muted); font-style: normal; font-size:.9em; }
+  h2 { font-size: 1.25rem; color: var(--accent); margin-top: 2.4rem;
+       letter-spacing:-.01em; text-wrap: balance; }
+  h3 { font-size: 1.02rem; margin-top: 1.6rem; }
+  code, pre { font-family: ui-monospace, "SF Mono", Menlo, monospace;
+              background: var(--soft); border-radius: 4px; }
+  code { padding: .1em .35em; font-size: .86em; }
+  pre { padding: .8rem 1rem; overflow-x: auto; font-size: .82em; line-height: 1.5; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: .9em;
+          font-variant-numeric: tabular-nums; display:block; overflow-x:auto; }
+  th, td { border: 1px solid var(--line); padding: .35rem .65rem; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  th { background: var(--soft); font-weight:600; }
+  figure { margin: 1.4rem 0; text-align: center; }
+  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  figcaption { font-size: .84em; color: var(--muted); margin-top: .45rem; }
+  .finding { background: var(--soft); border-left: 4px solid var(--accent);
+             padding: .7rem 1rem; margin: 1.1rem 0; border-radius: 0 6px 6px 0; }
+  .missing { color: #c0392b; }
+  .tag { display:inline-block; background:var(--accent); color:var(--bg);
+         border-radius: 10px; padding: 0 .55em; font-size:.72em; font-weight:650;
+         letter-spacing:.03em; vertical-align: middle; margin-right:.45em; }
+"""
+
+HEAD = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inverse Simulation from Video Priors — M0–M4 Report</title>
-<style>
-  :root { --fg:#1a1a1a; --bg:#ffffff; --accent:#0b5fa5; --soft:#f4f6f8; --line:#d8dee4; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg:#e8e8e8; --bg:#14181c; --accent:#6ab0e8; --soft:#1d242b; --line:#333c45; }
-  }
-  body { font: 16px/1.6 system-ui, sans-serif; color:var(--fg); background:var(--bg);
-         max-width: 900px; margin: 0 auto; padding: 2rem 1.2rem 4rem; }
-  h1 { font-size: 1.7rem; border-bottom: 2px solid var(--accent); padding-bottom:.4rem; }
-  h2 { font-size: 1.25rem; color: var(--accent); margin-top: 2.2rem; }
-  h3 { font-size: 1.05rem; margin-top: 1.6rem; }
-  code, pre { font-family: ui-monospace, monospace; background: var(--soft);
-              border-radius: 4px; }
-  code { padding: .1em .35em; font-size: .88em; }
-  pre { padding: .8rem 1rem; overflow-x: auto; font-size: .82em; line-height: 1.45; }
-  table { border-collapse: collapse; margin: 1rem 0; font-size: .9em; width: 100%; }
-  th, td { border: 1px solid var(--line); padding: .35rem .6rem; text-align: right; }
-  th:first-child, td:first-child { text-align: left; }
-  th { background: var(--soft); }
-  figure { margin: 1.2rem 0; text-align: center; }
-  figure img { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; }
-  figcaption { font-size: .85em; opacity: .75; margin-top: .4rem; }
-  .finding { background: var(--soft); border-left: 4px solid var(--accent);
-             padding: .7rem 1rem; margin: 1rem 0; border-radius: 0 6px 6px 0; }
-  .missing { color: #c0392b; }
-  .tag { display:inline-block; background:var(--accent); color:var(--bg);
-         border-radius: 10px; padding: 0 .55em; font-size:.75em; font-weight:600;
-         vertical-align: middle; margin-right:.4em; }
-</style></head><body>
+<style>{CSS}</style></head><body>
 """
 
 
-def build(m4_result_html: str) -> str:
-    s = HEAD
+def build(m4_result_html: str, artifact: bool = False) -> str:
+    if artifact:
+        # Artifact pages get the html/head/body skeleton from the publisher;
+        # provide only <title>, <style>, and content.
+        s = ("<title>Inverse Simulation from Video Priors — M0–M4 Report</title>\n"
+             f"<style>{CSS}</style>\n")
+    else:
+        s = HEAD
     s += """
 <h1>Inverse Simulation from Video Priors — M0–M4 Report</h1>
 <p><em>2026-07-21 · Newton 1.4.0 / Warp 1.15.0 · RTX A6000 · repo:
@@ -244,13 +264,40 @@ python scripts/recover_full.py --method lm --fix log_mass --starts 5   # M3
 python scripts/probe_identifiability.py           # M3 probe
 python scripts/run_m4_pipeline.py --starts 3      # M4 stage 1</pre>
 <p><em>Technical log for the working agent: <code>docs/PROJECT_LOG.md</code>.</em></p>
-</body></html>
 """
+    if not artifact:
+        s += "</body></html>\n"
     return s
 
 
+M4_RESULT_DEFAULT = """
+<div class="finding"><b>Result (3 starts, 333&nbsp;s).</b> All starts converge to the
+same plateau: 2D loss ≈ 6×10⁻⁵ ≈ <b>4&nbsp;px RMS — the Lucas–Kanade tracking noise
+floor</b>, not an optimizer failure. Against these noisy single-view tracks the
+well-identified parameters recover to ~14–30&nbsp;% (wind a0 13.8&nbsp;%, gravity
+19&nbsp;%, stretch 25&nbsp;%, damping 30&nbsp;%); sloppy directions degrade further.
+Since the same optimizer reaches ≤0.07&nbsp;% with exact 3D supervision, the accuracy
+limit has moved from <em>optimization</em> to <em>observation quality</em>.</div>
+<table>
+<tr><th>param</th><th>true</th><th>recovered</th><th>rel err</th></tr>
+<tr><td>wind a0</td><td>15.0</td><td>12.94</td><td>13.8 %</td></tr>
+<tr><td>wind a1</td><td>4.0</td><td>1.62</td><td>59.5 %</td></tr>
+<tr><td>wind a2</td><td>−3.0</td><td>−0.05</td><td>98.2 %</td></tr>
+<tr><td>gravity_z</td><td>−9.81</td><td>−7.91</td><td>19.3 %</td></tr>
+<tr><td>tri_ke</td><td>5000</td><td>3745</td><td>25.1 %</td></tr>
+<tr><td>tri_kd</td><td>10.0</td><td>6.96</td><td>30.4 %</td></tr>
+<tr><td>edge_ke</td><td>10.0</td><td>0.0</td><td>unobservable</td></tr>
+<tr><td>mass</td><td>0.05</td><td>0.05</td><td>fixed (gauge)</td></tr>
+</table>
+"""
+
+
 if __name__ == "__main__":
-    m4_html = sys.argv[1] if len(sys.argv) > 1 else "<p class='missing'>[M4 results pending]</p>"
+    m4_html = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else M4_RESULT_DEFAULT
     path = REPO / "docs" / "report.html"
     path.write_text(build(m4_html))
     print(f"wrote {path} ({path.stat().st_size / 1024:.0f} KiB)")
+    if len(sys.argv) > 2 and sys.argv[2] == "--artifact":
+        apath = Path(sys.argv[3])
+        apath.write_text(build(m4_html, artifact=True))
+        print(f"wrote {apath} ({apath.stat().st_size / 1024:.0f} KiB)")
