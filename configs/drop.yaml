@@ -1,0 +1,35 @@
+# M5: real-asset rigid-body inverse. A scanned GSO object is dropped with an
+# initial velocity + spin onto a ground plane; it falls, bounces (restitution),
+# and slides/rolls (friction). We recover its physical attributes from the
+# resulting pose trajectory.
+seed: 42
+device: "cuda:0"
+
+asset:
+  category: rigid
+  name: Threshold_Porcelain_Teapot_White   # watertight-ish, ~19 cm, compact
+  target_faces: 1500                        # decimate scan for sim
+  drop_height: 0.35                         # m above ground (COM)
+
+sim:
+  fps: 60
+  num_frames: 72            # 1.2 s
+  substeps: 24              # dt = 1/(60*24) = 6.94e-4 s
+  xpbd_iterations: 15
+  ground_mu: 1.0            # fixed; object mu is theta (Newton combines the two)
+
+# theta = [log_density, mu, restitution, v0x, v0y, v0z, w0x, w0y, w0z]  (9)
+# density in kg/m^3, mu dimensionless, restitution in [0,1), v in m/s, w in rad/s.
+theta:
+  true_values:
+    density: 800.0
+    mu: 0.4
+    restitution: 0.55
+    v0: [0.6, 0.15, 0.0]     # horizontal launch (excites friction on landing)
+    w0: [0.0, 3.0, 1.5]      # spin (excites rolling + orientation signal)
+  init_values:
+    density: 1400.0
+    mu: 0.9
+    restitution: 0.15
+    v0: [0.0, 0.0, 0.0]
+    w0: [0.0, 0.0, 0.0]

@@ -246,6 +246,37 @@ quantifies how physical it is.</div>
                  "hallucinated flagpole + tripod appears and the flag is reframed — scene re-staging "
                  "that breaks frame-0-anchored geometry.")
     s += """
+<h2><span class="tag">M5</span> A real scanned object, its physics recovered from motion</h2>
+<p>Everything so far used an authored cloth flag. M5 takes a <b>real 3-D scan</b> — a
+porcelain teapot from Google Scanned Objects — drops it with an initial launch and
+spin onto a ground plane, and recovers its physical attributes θ = {density, friction,
+restitution, initial linear + angular velocity} from the resulting motion. The scan
+provides geometry; placement is input; the physics is what we infer. That inference
+<em>is</em> the assetization.</p>
+"""
+    s += img_tag("rigid_drop_render.png",
+                 "The real scanned teapot mesh running in Newton's contact solver: it falls, "
+                 "strikes the ground, and rolls to rest — orientation and all.")
+    s += """
+<p>Two findings carry over and one is new:</p>
+<ul>
+<li><b>Contact kills the gradient again.</b> The XPBD solver's tape gradient through
+contact is exactly zero (finite differences are not) — the same wall we hit with the
+VBD cloth solver. The solver-agnostic multi-start Levenberg–Marquardt we built back at
+M3 handles it unchanged; the architectural bet keeps paying off.</li>
+<li><b>Density is a gauge freedom — the rigid echo of the cloth scale-gauge.</b> In
+ideal rigid contact against a fixed floor, free-fall and the collision laws are all
+mass-independent, so the trajectory should not reveal density at all. It barely does
+(≈9&nbsp;mm of drift under a 4× density change), and that sliver is a numerical artifact
+of the compliant contact model, not real physics. So density is unrecoverable on
+principle — exactly as mass was for the cloth. Friction and restitution are legible only
+through their contact events; the launch velocities are written plainly in the
+free-flight arc.</li>
+<li><b>The optimizer runs four ways at once.</b> Each Levenberg–Marquardt start took its
+own GPU, four in parallel — turning held capacity into a finished multi-start recovery
+in one wall-clock pass.</li>
+</ul>
+<!-- M5_RESULTS -->
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
@@ -258,11 +289,15 @@ CoTracker for real textures.</li>
 <h2>Reproduce</h2>
 <pre>conda create -n warp python=3.11 -y
 conda run -n warp pip install -r requirements.txt
-python scripts/run_forward.py                     # M0
-python scripts/check_grad.py                      # M1
+bash scripts/fetch_assets.sh                       # real GSO / PolyHaven assets
+python scripts/run_forward.py                      # M0
+python scripts/check_grad.py                       # M1
 python scripts/recover_full.py --method lm --fix log_mass --starts 5   # M3
-python scripts/probe_identifiability.py           # M3 probe
-python scripts/run_m4_pipeline.py --starts 3      # M4 stage 1</pre>
+python scripts/probe_identifiability.py            # M3 probe
+python scripts/run_m4_pipeline.py --starts 3       # M4 stage 1
+python scripts/run_rigid_forward.py                # M5 real-asset drop
+python scripts/recover_rigid.py --start 0 --out o.json  # (one LM start; run 4 in parallel)
+python scripts/recover_rigid.py --aggregate        # M5 merge + identifiability</pre>
 <p><em>Technical log for the working agent: <code>docs/PROJECT_LOG.md</code>.</em></p>
 """
     if not artifact:
