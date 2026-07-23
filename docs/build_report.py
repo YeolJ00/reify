@@ -460,6 +460,16 @@ the gradient flowing cleanly through the contact.</p>
                  "Two real scanned objects collide (left); starting from a wrong guess, gradient "
                  "descent through the differentiable contact recovers the true density (right).")
     s += """
+<h2><span class="tag">M10</span> Full rigid bodies — spin and friction</h2>
+<p>The final piece: real objects that tumble and rub. An off-center hit now imparts
+<b>spin</b> through friction and torque, with a full inertia tensor — and it stays
+differentiable and conserves both linear and angular momentum exactly, so the density
+still falls out by gradient descent (even a touch sharper than before).</p>
+"""
+    s += img_tag("diff_collide_6dof.png",
+                 "Off-center collision of two real scanned objects: they deflect (left) and spin up "
+                 "from the frictional torque (middle); gradient descent recovers the density (right).")
+    s += """
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —

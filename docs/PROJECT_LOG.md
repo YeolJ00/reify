@@ -614,3 +614,43 @@ sphere covering already delivers differentiable real-mesh contact.
 Remaining for full realism: 6-DOF (orientation + inertia + torque; contact points
 already give torque arms) and friction. Translation-only suffices for the density-
 from-collision result because linear-momentum exchange is what carries the mass ratio.
+
+## M10 — 6-DOF rotation + friction on the mesh contact (2026-07-23)
+
+`src/sim/diff_collide_6dof.py`, `scripts/diff_collide_6dof_recover.py`. Full rigid
+dynamics, still differentiable + momentum-conserving, on real (sphere-covered) meshes.
+
+Added over M9 (translation-only):
+- **orientation** (quaternion) + **angular velocity**, integrated with Euler's
+  equation: world inertia I_w = R (mass*G) R^T (G = per-unit-mass inertia of the
+  sphere cloud, precomputed), gyroscopic term omega x (I_w omega) included,
+  quaternion update q += 0.5*omega_quat*q*dt, renormalized.
+- **torque**: each contact force applied at the shared contact point (midpoint of
+  the overlapping spheres) with arm r x f -> spins the bodies.
+- **friction**: regularized Coulomb f_t = -mu*f_n*v_t/(|v_t|+1e-3), smooth ->
+  differentiable, opposes tangential slip; v_t uses the contact-point velocity
+  v_com + omega x r, so it couples rotation.
+- momentum conserved for BOTH linear and angular because the force pair (f, -f)
+  acts at the same contact point.
+
+Warp API used: wp.quat_rotate, wp.quat_to_matrix, wp.transpose, mat33*mat33,
+mat33*vec3, quat*quat, quat*scalar, quat+quat, wp.normalize(quat) — all compiled
+first try; the module ran without API friction.
+
+Result (two triceratops scans, y-offset for an off-center spin-inducing hit,
+mu=0.5, densities 800/400):
+- linear momentum drift **2.2e-8**, angular momentum drift **2.1e-7** (both conserved)
+- rotation induced: obj0 **91 deg**, obj1 **83 deg** (torque + friction active)
+- tape grad matches FD to **7e-4** rel err (gradient flows through the full 6-DOF+friction rollout)
+- density recovered **793.8 vs true 800 (0.8 %)**, ratio 1.98 vs 2.0 — BETTER than
+  translation-only M9 (3.1 %): rotation/friction coupling adds observability.
+Figure `outputs/diff_collide_6dof.png`.
+
+The physics engine is now: 6-DOF rigid bodies, real scanned geometry, penalty
+contact with Coulomb friction, fully differentiable in Warp, exactly conserving
+linear + angular momentum — and it recovers material parameters from a collision
+by gradient descent. Every gap from the XPBD root-cause (M7b) is closed:
+differentiable, scale-consistent (ratio recovered), momentum-conserving.
+Remaining niceties: friction/restitution as recoverable theta (the machinery is
+there — they enter the differentiable force), multi-body (N>2) contact broad-phase,
+and coupling this contact into the cloth/scene pipeline for full assetization.
