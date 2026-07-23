@@ -1,0 +1,39 @@
+# M6: real MULTI-asset scene. Two scanned objects are launched toward each other
+# above a surface; they collide (momentum transfer), scatter, and settle. Unlike
+# the single-object drop (where density is a pure gauge freedom), the object-object
+# collision couples their masses -> relative density becomes observable.
+seed: 42
+device: "cuda:0"
+
+environment: table          # "table" (real mesh render + box collision proxy) | "ground"
+table:
+  name: wooden_table_02
+  target_faces: 4000
+  top_z: 0.706              # tabletop surface height (real mesh lifted to match)
+  half_x: 0.50             # tabletop collision-proxy footprint (inside the real top)
+  half_y: 0.34
+  thickness: 0.04
+
+sim:
+  fps: 60
+  num_frames: 60            # 1.0 s
+  substeps: 24              # dt = 6.9e-4 s
+  xpbd_iterations: 16
+sdf_resolution: 64
+
+objects:
+  - name: Threshold_Porcelain_Teapot_White
+    target_faces: 1200
+    pos: [-0.24, 0.0, 0.82]      # just above tabletop, left
+  - name: Weisshai_Great_White_Shark
+    target_faces: 1200
+    pos: [0.22, 0.02, 0.82]      # just above tabletop, right
+
+# theta per object = [log_density, mu, restitution, v0x, v0y, v0z]  (6 each)
+theta:
+  true_values:
+    - {density: 900.0,  mu: 0.35, restitution: 0.5, v0: [1.7, 0.0, 0.0]}   # teapot -> +x
+    - {density: 400.0,  mu: 0.35, restitution: 0.4, v0: [-1.5, 0.0, 0.0]}  # shark  -> -x
+  init_values:
+    - {density: 1500.0, mu: 0.35, restitution: 0.2, v0: [0.8, 0.0, 0.0]}
+    - {density: 1500.0, mu: 0.35, restitution: 0.2, v0: [-0.7, 0.0, 0.0]}
