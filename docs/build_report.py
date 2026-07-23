@@ -450,6 +450,16 @@ penetration query, which Newton's meshes already expose. The project's long thre
 ties off in a single sentence: the observation and the optimizer were rarely the wall — the
 simulator's contact was, and a contact written in Warp to be differentiable and
 momentum-conserving is what makes physics recoverable through collision.</p>
+
+<h2><span class="tag">M9</span> On real scanned objects</h2>
+<p>Same idea, real geometry: two 3-D-scanned objects collide, and their density is
+recovered from the motion by gradient descent — momentum conserved to machine precision,
+the gradient flowing cleanly through the contact.</p>
+"""
+    s += img_tag("diff_collide_mesh.png",
+                 "Two real scanned objects collide (left); starting from a wrong guess, gradient "
+                 "descent through the differentiable contact recovers the true density (right).")
+    s += """
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —

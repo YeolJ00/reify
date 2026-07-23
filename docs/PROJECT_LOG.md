@@ -572,3 +572,45 @@ gradients. The proof of concept is done; mesh-SDF differentiable contact is the
 remaining engineering. This is the through-line resolved: with a differentiable,
 momentum-conserving contact written in Warp, contact parameters become
 recoverable — the simulator, not the observation or the optimizer, was the wall.
+
+## M9 — differentiable contact on REAL mesh assets (2026-07-23)
+
+Extended M8's differentiable contact from spheres to real scanned geometry.
+`src/sim/diff_collide_mesh.py`, `scripts/diff_collide_mesh_recover.py`.
+
+Approach chosen (after a false start): **sphere-covering**. Warp's mesh_query
+(`mesh_query_point_sign_winding_number`) conserves momentum but its adjoint is
+BROKEN — the discrete BVH face-selection is non-differentiable, so tape grad
+(7.6e-3) disagreed with FD (-0.24, wrong sign). The correct-and-robust fix:
+approximate each real mesh by a covering of interior spheres (trimesh
+`voxelized(pitch)`, surface shell — `.fill()` needs scipy which errored), then
+use the analytic sphere-sphere penalty contact from M8 between the two sphere
+sets. Every contact term is then a smooth function of position -> gradient flows;
+equal-and-opposite pair forces -> momentum conserved. The sphere set traces the
+real shape (124 spheres/object for a triceratops at pitch 0.012).
+
+Two bugs cost a cycle (both broke the gradient, not the forward):
+- **force array not zeroed** before the per-step atomic_add accumulation -> forces
+  accumulated across rollouts in the Adam loop. Fix: `force[t].zero_()` each step.
+- **in-place gravity** (`force[i] = force[i] + g*mass`) broke Warp's tape adjoint.
+  Fix: fold gravity into the integrator as an acceleration (`v += (f*inv_m + g)*dt`),
+  no in-place write. (This is the NVIDIA-blog rule: don't overwrite arrays in place
+  on the tape.)
+
+Result (two triceratops scans, densities 800/400, head-on):
+- momentum drift over rollout **7.45e-9** (machine precision)
+- tape grad matches FD to **6e-4** rel err (GRADIENT FLOWS through real-mesh contact)
+- density recovered by gradient descent: **775 vs true 800 (3.1 %)**, ratio 1.94 vs 2.0
+Figure `outputs/diff_collide_mesh.png` (collision + recovery curve).
+
+So the whole arc closes: differentiable + momentum-conserving contact, now on REAL
+scanned assets, recovers density from a collision — the thing XPBD/CEM/momentum-
+measurement could not. Sphere-covering is the pragmatic differentiable contact;
+the "exact" alternative is sampling a precomputed SDF volume with
+`wp.volume_sample_grad_f` (differentiable) — Newton's `mesh.build_sdf().sparse_volume`
+provides it; deferred as it needs sparse-volume index-transform plumbing, and the
+sphere covering already delivers differentiable real-mesh contact.
+
+Remaining for full realism: 6-DOF (orientation + inertia + torque; contact points
+already give torque arms) and friction. Translation-only suffices for the density-
+from-collision result because linear-momentum exchange is what carries the mass ratio.
