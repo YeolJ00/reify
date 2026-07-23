@@ -388,6 +388,37 @@ impact, an analytic/smooth contact model, or fitting the momentum-conservation r
 directly instead of the full chaotic trajectory. It is the sharpest form of the lesson the
 whole project keeps teaching — a parameter is recoverable only where it smoothly shapes the
 motion, and violent contact is exactly where that smoothness breaks.</p>
+
+<h3>High-resolution observation — and the root cause of every contact failure</h3>
+<p>There was one more lever worth pulling: if the collision is a brief event we were
+aliasing at 60&nbsp;fps, then observing it at ~1500&nbsp;fps should expose the velocity
+change at contact — and the mass ratio is a clean, algebraic function of that change
+(m₀Δv₀ = −m₁Δv₁), no chaotic trajectory fit required. So we threw two comparable-mass
+scanned objects at each other <em>in mid-air</em>, where only their mutual impulse acts, and
+resolved the impact.</p>
+<div class="finding"><b>The observation works; the solver doesn't.</b> High resolution
+resolves the impact cleanly — but the law the method rests on is broken by the simulator.
+Measured against the true launch-and-separation velocities, the total horizontal momentum
+<b>drops 57% through the collision</b>, when it must stay exactly constant. The leak is
+identical at 18, 50, and 100 solver iterations, so it is fundamental to the position-based
+contact model, not a convergence artifact — and it drags the recovered mass ratio to half
+its true value.</div>
+"""
+    s += img_tag("momentum_nonconservation.png",
+                 "Left: the mid-air collision cleanly exchanges horizontal velocity between the two "
+                 "objects. Right: total horizontal momentum is flat in free flight, then collapses "
+                 "57% during contact — XPBD's position-based contact does not conserve momentum.")
+    s += """
+<p>This is the thread that ties every contact result together. Newton's XPBD contact is
+built for fast, stable <em>forward</em> simulation, not for the physical fidelity an inverse
+problem needs — across the milestones it turned out to be <b>non-differentiable</b> (zero
+gradient, M5), <b>non-scale-invariant</b> (absolute density leaks in, M7), and now
+<b>non-momentum-conserving</b> (M7b). Any method that leans on the contact impulse being
+correct — a gradient, or a momentum measurement — breaks on the same rock. The fix is not a
+cleverer optimizer or a finer camera; it is a momentum-conserving contact solver (MuJoCo, or
+an impulse/LCP formulation). The high-resolution observation is already right and sufficient;
+with a faithful solver under it, reading density off a collision becomes a linear
+measurement rather than an impossible fit.</p>
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —

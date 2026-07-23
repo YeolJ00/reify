@@ -1,0 +1,37 @@
+# M7b: MID-AIR collision, observed at high time resolution, to recover density
+# via momentum conservation. Two compact scanned objects are thrown toward each
+# other ABOVE the ground and collide in flight — so during the brief impact only
+# their mutual collision impulse acts (no table/ground contact to contaminate the
+# two-body momentum balance). obs_stride=1 resolves the impact (~1500 Hz), from
+# which m1*dv1 = -m2*dv2 gives the mass ratio -> density ratio directly.
+seed: 42
+device: "cuda:0"
+
+environment: ground        # collide mid-air, well above the ground plane
+
+sim:
+  fps: 60
+  num_frames: 15           # 0.25 s — flight + impact + early separation, still airborne
+  substeps: 28
+  xpbd_iterations: 18
+  obs_stride: 1            # observe EVERY substep (~1500 Hz) to resolve the impulse
+sdf_resolution: 64
+
+objects:
+  # comparable-mass objects (base masses 0.121 vs 0.097) so BOTH velocity changes
+  # are large and measurable — a 40:1 mass ratio makes the heavy object's dv noise
+  - name: Weisshai_Great_White_Shark
+    target_faces: 1200
+    pos: [-0.26, 0.0, 1.30]
+  - name: Great_Dinos_Triceratops_Toy
+    target_faces: 1200
+    pos: [0.15, 0.0, 1.30]
+
+# theta per object = [log_density, mu, restitution, v0x, v0y, v0z]; head-on in flight
+theta:
+  true_values:
+    - {density: 800.0, mu: 0.3, restitution: 0.6, v0: [2.4, 0.0, 0.0]}
+    - {density: 400.0, mu: 0.3, restitution: 0.6, v0: [-1.8, 0.0, 0.0]}
+  init_values:
+    - {density: 1500.0, mu: 0.3, restitution: 0.4, v0: [1.5, 0.0, 0.0]}
+    - {density: 1500.0, mu: 0.3, restitution: 0.4, v0: [-1.0, 0.0, 0.0]}

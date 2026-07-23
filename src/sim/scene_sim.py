@@ -46,6 +46,10 @@ class SceneSim:
         self.fps, self.num_frames, self.substeps = int(s["fps"]), int(s["num_frames"]), int(s["substeps"])
         self.sim_dt = 1.0 / (self.fps * self.substeps)
         self.n_obj = len(cfg["objects"])
+        # observation stride in substeps: default = one sample per frame; set to a
+        # small value (e.g. 1) for high-time-resolution observation that resolves
+        # the collision event itself (momentum transfer -> mass ratio).
+        self.obs_stride = int(s.get("obs_stride", self.substeps))
 
         builder = newton.ModelBuilder()
         # --- static environment ---
@@ -149,7 +153,7 @@ class SceneSim:
             self.solver.step(a, b, None, self.contacts, self.sim_dt)
             a, b = b, a
             sub += 1
-            if sub % self.substeps == 0:
+            if sub % self.obs_stride == 0:
                 poses.append(a.body_q.numpy()[idx].copy())
         return np.array(poses)
 

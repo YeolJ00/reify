@@ -491,3 +491,44 @@ model, or a physics-informed parameterization that fits the momentum-conservatio
 relation directly rather than the full chaotic trajectory. This connects to the
 material-vs-forcing distinction: density only modulates motion through the
 collision, and that modulation is non-smooth, so it resists trajectory-fitting.
+
+## M7b — high-time-resolution observation: the root cause surfaces (2026-07-23)
+
+Tried the proposed lever — observe the collision at high frame rate to recover
+density. `configs/collide_hires.yaml` (obs_stride=1, ~1500 Hz), two comparable-mass
+objects colliding MID-AIR (ground env, no table) so only the mutual impulse acts.
+
+1. **Dense positions + trajectory fit still fails.** LM on the densely-sampled
+   position residual freezes at iter 0 (lambda->1e7) exactly like the 60 Hz case.
+   Densely sampling a chaotic trajectory is still chaotic — resolution doesn't
+   smooth the landscape.
+2. **The right use of high-res is to MEASURE the impulse, not fit the trajectory.**
+   The velocity change at contact is a smooth algebraic function of the mass ratio:
+   m0*dv0 = -m1*dv1. High-res resolves the impact cleanly (`recover_density_
+   momentum.py`; velocities in `outputs/momentum_nonconservation.png` left panel).
+3. **But the momentum law it relies on is VIOLATED by the solver.** Using the true
+   asymptotic velocities (start = exactly the launch v0 = free flight; end = fully
+   separated), total horizontal momentum drops **57 %** (0.162 -> 0.070 kg·m/s)
+   through the collision — see the flat-then-collapse curve in the figure's right
+   panel. Real collisions conserve momentum exactly (restitution loses energy, not
+   momentum). The loss is stable across xpbd_iterations 18/50/100 (~55-57 %), so it
+   is fundamental to XPBD's contact model, not a convergence artifact. The measured
+   mass ratio comes out 1.26 vs true 2.48 — off by ~2x, exactly the momentum leak.
+
+**Root cause of ALL contact-recovery failures, unified.** Newton's position-based
+XPBD contact is built for fast, stable FORWARD simulation, not for physical
+fidelity of the contact impulse. Across the milestones its contact is:
+- **non-differentiable** (tape gradient exactly 0 — M5),
+- **non-scale-invariant** (absolute density leaks into the collision — M7), and
+- **non-momentum-conserving** (57 % horizontal-momentum loss — M7b).
+Any inverse method that relies on the contact impulse being physically correct —
+gradient descent, or momentum-conservation measurement — fails through this solver.
+It is not chaos alone and not our estimator; the discrete contact is unfaithful.
+
+**The real fix (recommended next step):** a momentum-conserving contact solver.
+Newton ships `SolverMuJoCo` (MuJoCo's contact is physically grounded), but it needs
+`pip install mujoco` + `mujoco_warp` and the scene re-expressed for that backend —
+a separate validation. Alternatively an impulse/LCP rigid solver. With momentum
+conserved, the high-res momentum-measurement recovery of the density ratio should
+work directly (it is a linear read-off, no chaotic optimization). The high-res
+OBSERVATION is correct and sufficient; the SOLVER is what currently defeats it.
