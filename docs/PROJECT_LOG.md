@@ -364,3 +364,56 @@ Perf: rollout 8.7 s (72 frames x 24 substeps, XPBD 15 iters). LM ~160 s/iter
 start per GPU) via `scripts/recover_rigid.py --start K` + `--aggregate` — the
 held GPUs put to productive use. `scripts/run_gpu.py` (was gpu_hold.py) claims/
 holds idle GPUs; release with `touch /tmp/release_gpu<N>`.
+
+## M6 — real MULTI-asset scene (2026-07-23)
+
+Two real scanned objects (GSO teapot + great-white-shark) launched toward each
+other on a real wooden table, colliding and settling. This is the "Scale"
+milestone: multi-object + real asset. theta = 6/object x 2 = 12
+[log_density, mu, restitution, v0(3)] each.
+
+Engineering (Newton 1.4.0):
+- **Object-object contact needs SDF.** Triangle-mesh vs triangle-mesh contact
+  between two scanned meshes explodes (non-finite by frame 7). `mesh.build_sdf(
+  max_resolution=64)` on each object -> robust volumetric contact, stable.
+- **Objects fall through a static triangle-mesh table.** Object-vs-static-mesh
+  contact doesn't catch them. Fix: a **static box collision proxy** for the
+  tabletop (exact, stable) + the real table mesh kept only for rendering — a
+  standard visual-mesh / collision-proxy split (`render_scene.py`).
+- Kinematic tabletop is body 0; object bodies are offset -> index by obj_body[].
+- Perf: 7.5 s/rollout (60 frames x 24 substeps, SDF res 64, XPBD 16).
+
+### M6 results
+
+4 parallel multi-start LM (one stuck start killed; best-of-3). **Best fit
+13.9 mm RMS — better than single-object M5 (17.7 mm)**; recovered paths track the
+true collision trajectories (`outputs/scene_recover.png`).
+
+Recovery again tracks observability (GN sensitivity in parens, m/unit theta):
+- Launch velocities recovered well: v0x within ~15-18 % (teapot 1.70->1.46,
+  shark -1.50->-1.23), v0y/v0z ~0 correct. (sens 0.16-0.43)
+- Contact params poor: mu, restitution off ~2x (sens ~0.23).
+- **Densities are the two least-observable params** (sens 0.023 / 0.059): teapot
+  900->1588 (76 % off), shark 400-> ran to the 1e5 clamp ceiling (unidentified).
+
+**Does object-object collision break the density gauge?** Partially. The
+density-swap forward test (swap 900<->400) moves markers 36 mm, so the collision
+*does* couple the masses. But locally the coupling is weak: the density
+RATIO direction (d0 up / d1 down) has only **1.4x** the loss curvature of the
+overall SCALE direction (both up) — both are ~20x below the velocity
+sensitivities. So the collision *softens* the per-object density gauge rather
+than cleanly breaking it; density stays the weakest-observed quantity and the
+light shark's density runs to the clamp. To strongly identify relative density
+you'd need a collision-dominated scene (repeated/harder impacts, collision as the
+primary motion) rather than launch-and-settle where kinematics dominate.
+
+Takeaway (consistent M5->M6): **you recover what the motion observes.** Launch
+kinematics: yes. Contact material + density: weak, and weaker still for the
+lighter object. The identifiability probe predicts the ranking every time.
+
+### GPU credit / efficiency
+
+`davian credit`: A6000 bills **9 credit/hr PER GPU regardless of utilization**.
+Multi-start LM starts are launch-bound (~14 % GPU, ~400 MB) -> spreading N starts
+across N GPUs costs Nx for no speedup. Pack them onto ONE GPU. Don't hold idle
+GPUs. (Corrected the earlier hold-everything approach.)

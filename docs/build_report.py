@@ -306,6 +306,42 @@ optimization traps. This is the same ruggedness we saw far from the target in th
 case, now intrinsic to contact. The scientific takeaway is unchanged and is the whole
 point of the project: <b>you can only recover what the motion observes, and the
 identifiability analysis tells you in advance which parameters those are.</b></p>
+
+<h2><span class="tag">M6</span> A real multi-asset scene — and a gauge that a collision can bend</h2>
+<p>The last step leaves the empty stage behind: two real scanned objects — the teapot
+and a great-white-shark scan — launched toward each other <b>on a real wooden table</b>,
+colliding and coming to rest. We recover both objects' physics at once (twelve
+parameters), and ask a question the single object could not: when two bodies collide,
+does their momentum exchange finally reveal their masses?</p>
+"""
+    s += img_tag("scene_render.png",
+                 "Two real scanned objects colliding on the real table mesh, in Newton's contact "
+                 "solver. Object-object contact uses SDF collision; the tabletop is a box proxy "
+                 "with the real mesh kept for rendering.")
+    s += """
+<div class="finding"><b>Best fit 13.9&nbsp;mm — sharper than the single object</b> (17.7&nbsp;mm),
+and once again the recovered trajectories trace the true collision almost exactly. The
+per-parameter accuracy follows the identifiability ranking as faithfully as before: the
+launch velocities come back to ~15&nbsp;%, the contact materials are soft, and the two
+<b>densities are the least-observable parameters of all</b> — the teapot's is 76&nbsp;%
+off and the lighter shark's runs clean off to the clamp.</div>
+<p><b>Does the collision break the density gauge?</b> It bends it. Swapping the two true
+densities shifts the motion by 36&nbsp;mm, so the impact genuinely couples the masses —
+yet locally the coupling is weak: the direction that trades density between the objects
+is only 1.4× more observable than raising both together, and both sit ~20× below the
+velocity signals. So the per-object gauge is <em>softened, not broken</em>. In a
+launch-and-settle scene the kinematics dominate; to read relative density cleanly you
+would need a collision-dominated one — repeated, harder impacts where the exchange of
+momentum is the main event. The honest conclusion is the throughline of the whole
+project, now proven across cloth, a single rigid body, and a multi-body scene: <b>you
+recover exactly what the motion makes observable — no more, and the analysis says in
+advance how much that is.</b></p>
+"""
+    s += img_tag("scene_recover.png",
+                 "Left/right: recovered paths (dashed) track the true collision. Middle: the two "
+                 "log-density bars are the smallest — density is the least-observable parameter, "
+                 "even with an object-object collision to couple the masses.")
+    s += """
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
@@ -325,8 +361,11 @@ python scripts/recover_full.py --method lm --fix log_mass --starts 5   # M3
 python scripts/probe_identifiability.py            # M3 probe
 python scripts/run_m4_pipeline.py --starts 3       # M4 stage 1
 python scripts/run_rigid_forward.py                # M5 real-asset drop
-python scripts/recover_rigid.py --start 0 --out o.json  # (one LM start; run 4 in parallel)
-python scripts/recover_rigid.py --aggregate        # M5 merge + identifiability</pre>
+python scripts/recover_rigid.py --start 0 --out o.json  # (one LM start; run several)
+python scripts/recover_rigid.py --aggregate        # M5 merge + identifiability
+python scripts/run_scene_forward.py --env table    # M6 multi-asset collision scene
+python scripts/recover_scene.py --start 0 --out o.json  # (pack starts on ONE GPU)
+python scripts/recover_scene.py --aggregate        # M6 merge + identifiability</pre>
 <p><em>Technical log for the working agent: <code>docs/PROJECT_LOG.md</code>.</em></p>
 """
     if not artifact:
