@@ -417,3 +417,47 @@ lighter object. The identifiability probe predicts the ranking every time.
 Multi-start LM starts are launch-bound (~14 % GPU, ~400 MB) -> spreading N starts
 across N GPUs costs Nx for no speedup. Pack them onto ONE GPU. Don't hold idle
 GPUs. (Corrected the earlier hold-everything approach.)
+
+## M7 — collision-dominated gauge + real backgrounds (2026-07-23)
+
+### Real backgrounds (city scene)
+
+Replaced the white-background renders with a **photorealistic city scene**
+(`scripts/blender_city.py`, Blender 4.2 + Cycles GPU, ~2 s/frame): PolyHaven CC0
+city HDRI (pretville_street) for sky/lighting/backdrop + painted wooden bench +
+Victorian street lamp + fire hydrant + a flagpole flying **our cloth-sim flag**
+(exported to OBJ by `export_flag_obj.py`). `outputs/city_scene.png`. This is the
+realistic I0 the M4 i2v pipeline wanted — a flag in an urban context, not on
+white. Assets fetched reproducibly by `fetch_assets.sh` (gitignored binaries).
+Gotcha: Blender's OBJ importer defaults to Y-up; pass `up_axis="Z"` to keep our
+Z-up sim mesh upright (else the flag lies flat).
+
+### Collision-dominated scene: does it break the density gauge?
+
+`configs/collide.yaml`: two similar-mass scanned objects (shark + triceratops)
+head-on on a low-friction tabletop, near-elastic (e=0.7). Post-collision velocity
+split depends on the mass ratio. `scripts/probe_density_gauge.py` measures the
+density scale-vs-ratio curvature.
+
+- **Observability: gauge BROKEN.** Density sensitivity jumps from ~0.03 (M6
+  launch scene) to 0.08-0.60 (comparable to velocity sensitivity). The GN
+  density RATIO direction is **3.4x** the SCALE direction (M6 was 1.4x) -> the
+  collision makes relative density observable. Density-swap moves markers 1.4 m
+  (M6: 36 mm).
+- **But recoverability: LM FAILS.** `recover_scene.py --config collide.yaml`
+  (4 starts): every recovered param = its init value; best RMS 224 mm (M6:
+  13.9 mm); cond 1.2e7. LM trace shows lambda -> 3e5 -> 3e8 at iter 0 with
+  |step| ~ 4e-6: **no acceptable descent step exists** at the start. The violent
+  collision makes bounce timing chaotic in the parameters, so the FD Jacobian is
+  noise. Observability and optimizability are in direct conflict here.
+
+**The observability-optimizability tradeoff (bracketed):**
+- M6 gentle collision: smooth landscape, LM recovers to 13.9 mm, but density
+  nearly unobservable (ratio 1.4x scale) -> density not recovered.
+- M7 violent collision: density observable (ratio 3.4x scale) but chaotic
+  landscape -> LM makes zero progress.
+Making contact informative enough to reveal density also destroys the smoothness
+local optimization needs. Resolution attempt: a GLOBAL gradient-free method
+(CEM) that tolerates chaos -> `recover_scene_cem.py`.
+
+<!-- M7_CEM_RESULT -->

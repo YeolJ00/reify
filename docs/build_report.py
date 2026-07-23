@@ -342,6 +342,34 @@ advance how much that is.</b></p>
                  "log-density bars are the smallest — density is the least-observable parameter, "
                  "even with an object-object collision to couple the masses.")
     s += """
+<h2><span class="tag">M7</span> Off the white background — and a gauge you can break but not read</h2>
+<p>Two threads close the current arc. First, the renders leave the void behind: our
+cloth-sim flag now flies on a pole in a <b>real city street</b> — a painted wooden bench,
+a Victorian lamp, a fire hydrant, and a photographed urban sky, lit and shadowed by
+Blender's path tracer. The same flag geometry that was optimized against motion is now
+staged in an environment, which is exactly the realistic initial frame the video-prior
+pipeline wants.</p>
+"""
+    s += img_tag("city_scene.png",
+                 "Our simulated flag flying in a real city scene: PolyHaven CC0 HDRI + street "
+                 "furniture, rendered in Blender/Cycles. The flag's shape is the cloth-sim mesh.")
+    s += """
+<p>Second, we chased the density gauge into a corner. The multi-asset scene only
+<em>bent</em> it; so we built a <b>collision-dominated</b> one — two comparable-mass
+scanned objects meeting head-on, near-elastically, where the split of momentum is set by
+their mass ratio. It worked, in the sense that matters for identifiability: density's
+sensitivity leapt an order of magnitude, and the direction that trades mass between the
+objects became <b>3.4× more observable</b> than scaling both together. The gauge, by every
+local measure, is broken.</p>
+<div class="finding"><b>And yet the recovery collapses.</b> Every Levenberg–Marquardt
+start froze at its initial guess (best fit 224&nbsp;mm vs 13.9&nbsp;mm before); the
+damping ran to 10⁸ on the first step because no descent direction exists. The very
+violence that reveals density makes bounce timing chaotic in the parameters, so the
+finite-difference gradient is noise. <b>Observability and optimizability are in direct
+conflict:</b> the gentle scene is smooth but blind to density; the violent scene sees
+density but is unsolvable by local methods. The escape is a global, gradient-free search
+that tolerates a rough landscape — the result of that attempt is below.</p>
+<!-- M7_CEM_HTML -->
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
