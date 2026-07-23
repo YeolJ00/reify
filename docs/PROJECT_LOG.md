@@ -688,3 +688,32 @@ Identifiability note: density<-mass ratio (momentum), friction<-spin transfer
 (needs a head-on component + inelastic regime). The off-center-hit-with-pre-spin
 scene excites all three; a purely head-on or purely glancing hit would leave one
 weakly observed.
+
+## M12 — full video pipeline end-to-end on real assets (2026-07-23)
+
+`scripts/full_pipeline.py`. Every piece wired together, on real scanned meshes:
+1. real GSO meshes -> 6-DOF+friction collision (differentiable contact), theta_true
+2. RENDER to a textured RGB video (per-face grayscale so LK has features)
+3. LK point-TRACK the video (129/153 points survive all 51 frames)
+4. ATTACH each frame-0 track to the nearest object vertex -> (body index, body-frame point)
+5. RECOVER density by differentiable simulation + differentiable camera projection
+   (`project_rigid_loss` kernel: world = pos_b + quat_rotate(rot_b, pt_local); project;
+   2D-track residual) — gradient flows through projection AND the 6-DOF contact rollout
+6. overlay GIF: LK tracks (red) vs recovered-sim reprojection (cyan) on the video
+
+Result: density_0 recovered **838 vs true 800 (4.8 %)** from the VIDEO — vs ~0-3 %
+from direct 3-D. The extra error is the LK tracking-noise floor (the same
+observation-quality limit found in M4), not the optimizer or the physics. Recovery
+loss was a bit noisy (2-D tracks) but converged. `outputs/full_pipeline.gif` shows
+the recovered simulation reprojecting onto the tracked points.
+
+This closes the loop the project set out to build: a real 3-D asset, its motion
+observed only through a rendered/tracked VIDEO, and its physical parameters
+recovered by a differentiable Warp simulation projected back to the image — with a
+differentiable, momentum-conserving contact (M8-M11) as the engine that made
+contact-rich recovery possible at all. Steps 2,4,6,7,8,9 of the architecture,
+running on real assets, verifiable, with video output.
+
+Wild extension (not run here): swap step 2's render for a Wan i2v generation
+(I0 -> V*) — the plumbing (i2v backends, tracker, projection, recovery) is all in
+place; the only change is the video source.

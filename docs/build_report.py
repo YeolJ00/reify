@@ -484,6 +484,19 @@ the objects' spin as well as their path is what makes friction legible.</p>
                  "Three contact parameters recovered at once from that collision: density, friction μ, "
                  "and restitution all converge to their true values.")
     s += """
+<h2><span class="tag">Full pipeline</span> Physics from a video of real objects</h2>
+<p>Everything, wired together and run on real scanned assets. Two objects collide; we
+<b>only ever see a video</b> of it. Points are tracked across the frames, and the physics
+is recovered by a differentiable simulation projected back onto those tracks — until the
+simulated object moves like the filmed one. In the clip below, the tracked points (red)
+and the recovered simulation (cyan) lock together, and the recovered density lands within
+5% of truth — recovered from the video alone.</p>
+"""
+    s += img_tag("full_pipeline.gif",
+                 "The whole pipeline in one clip: a video of two real scanned objects colliding, with "
+                 "the tracked points (red) and the physics-recovered simulation (cyan) overlaid — they "
+                 "match, and the object's density is read straight off the video.")
+    s += """
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
