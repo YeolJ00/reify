@@ -717,3 +717,38 @@ running on real assets, verifiable, with video output.
 Wild extension (not run here): swap step 2's render for a Wan i2v generation
 (I0 -> V*) — the plumbing (i2v backends, tracker, projection, recovery) is all in
 place; the only change is the video source.
+
+## M13 — realistic staged scene, physics from a photorealistic video (2026-07-23)
+
+The user's ask: real assets in a real *scene*, not floating in a void. Built the
+drop pipeline: `prep_drop_scene.py` (warp) -> `blender_drop.py` (Cycles) ->
+`recover_drop_scene.py` (warp). A real scanned triceratops falls onto the real
+wooden table in the city street (HDRI + lamp + hydrant props), rendered
+photorealistically; physics recovered from that video.
+
+- `src/sim/diff_drop.py`: single 6-DOF body + differentiable ground-plane
+  penalty+friction contact (restitution=normal damping cd, friction=mu, both
+  recoverable). FD-verified gradient (tape -0.0190 vs FD -0.0190).
+- **Camera match exact**: Blender camera (sensor_fit=HORIZONTAL, angle=fov) ==
+  src/render/camera.py pinhole; projected mesh lands on the rendered object.
+- RESULT: **restitution recovered cd 7.43 vs true 7.0 (6%)** from the photorealistic
+  bounce video. Friction weakly observed (79% off) — the object barely slides, and
+  adding slide speed loses the LK tracker (friction-vs-trackability tension).
+- density is a gauge under gravity (M5), so not recovered here.
+
+Hard-won lessons (all cost cycles):
+1. **NaN from invalid tracks**: LK fills lost tracks with NaN; NaN*valid(0)=NaN in
+   float poisons the loss. Fix: np.nan_to_num the tracks (valid mask does the rest).
+2. **Static-background tracks**: the frame-0 on-object filter also kept static
+   background points behind the object; they gave 147px error at TRUE params. Fix:
+   keep only tracks whose screen motion > 0.6x the object's (they ride the object).
+3. **Contact-gradient explosion**: backprop through EXTENDED/continuous contact
+   (a settling object) NaNs. Fix: stage a single clean BOUNCE (object airborne,
+   one brief contact) and observe drop->bounce->rise; clamp damping to the bouncy
+   regime so the optimizer never enters the settling regime.
+4. **Fast fall vs LK**: kept motion <~13 px/frame (within LK range) by tuning drop
+   height + frame rate; faster motion loses tracks (the CoTracker case from M4).
+
+This is the milestone the user wanted: a believable staged scene (real object,
+real table, real street), a photorealistic video, and a real physical parameter
+(bounciness) recovered from it by the differentiable Warp pipeline.
