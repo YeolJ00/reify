@@ -369,7 +369,25 @@ finite-difference gradient is noise. <b>Observability and optimizability are in 
 conflict:</b> the gentle scene is smooth but blind to density; the violent scene sees
 density but is unsolvable by local methods. The escape is a global, gradient-free search
 that tolerates a rough landscape — the result of that attempt is below.</p>
-<!-- M7_CEM_HTML -->
+<div class="finding"><b>The global search fails too — and that is the finding.</b> CEM,
+which needs no gradient and tolerates a rough surface, also never found the target: best
+fit 1130&nbsp;mm, its loss frozen near its starting value for all sixteen iterations, and
+the density ratio recovered as 0.52 against a true 2.0 — not just wrong in magnitude but
+inverted. So the collision scene is unrecoverable by <em>either</em> local or global
+optimization.</div>
+<p>This closes the question cleanly. <b>Observability is not recoverability.</b> The
+collision-dominated scene genuinely makes density observable — but the same violence that
+reveals it turns the loss landscape into a needle in a fractal haystack: the true optimum
+is a vanishingly small basin surrounded by deceptive shallow minima, and the dramatic
+1.4&nbsp;m density-swap sensitivity is the <em>symptom</em> of that intractability, not a
+promise of an easy fit. The bracket is now closed on both sides — the gentle scene is
+smooth but blind to density, the violent scene sees density but is unsolvable — and for
+this rigid-contact system there is no free lunch between them. Reading density off a
+collision would take a different lever entirely: higher-time-resolution observation of the
+impact, an analytic/smooth contact model, or fitting the momentum-conservation relation
+directly instead of the full chaotic trajectory. It is the sharpest form of the lesson the
+whole project keeps teaching — a parameter is recoverable only where it smoothly shapes the
+motion, and violent contact is exactly where that smoothness breaks.</p>
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —

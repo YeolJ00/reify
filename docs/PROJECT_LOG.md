@@ -460,4 +460,34 @@ Making contact informative enough to reveal density also destroys the smoothness
 local optimization needs. Resolution attempt: a GLOBAL gradient-free method
 (CEM) that tolerates chaos -> `recover_scene_cem.py`.
 
-<!-- M7_CEM_RESULT -->
+### CEM verdict: the gauge is observable but UNRECOVERABLE (by any method we have)
+
+CEM (global, gradient-free, pop 28 x 16 iters, 4496 s) ALSO fails on the
+collision scene:
+- best fit RMS **1130 mm** (worse than LM's 224 mm — CEM wandered further from
+  init); loss stuck at ~32 across all iterations, no descent.
+- density RATIO obj0/obj1: true 2.0, **recovered 0.52** — missed and inverted.
+- velocities wrong, some sign-flipped.
+
+**Definitive result: observability != recoverability.** The collision-dominated
+scene makes density observable (ratio 3.4x scale, swap moves markers 1.4 m) yet
+recoverable by NEITHER local (LM: frozen at init) NOR global (CEM: stuck in the
+chaotic loss sea) optimization. The very violence that reveals density also makes
+the loss landscape a needle-in-fractal-haystack: the true optimum is a
+measure-zero basin surrounded by deceptive ~32-loss minima, and high sensitivity
+(the 1.4 m swap) is the *symptom* of that intractability, not a promise of easy
+recovery.
+
+The bracket is now closed:
+- M6 gentle collision: smooth landscape, LM recovers to 13.9 mm, density
+  unobservable (ratio 1.4x) -> not recovered.
+- M7 violent collision: density observable (ratio 3.4x) but landscape chaotic ->
+  LM and CEM both fail.
+There is no free lunch: for this rigid-contact system, the regime that makes a
+material parameter observable is the same regime that destroys the smoothness
+optimization needs. Recovering density would need a different lever entirely —
+higher-temporal-resolution observation of the impact, a smoother/analytic contact
+model, or a physics-informed parameterization that fits the momentum-conservation
+relation directly rather than the full chaotic trajectory. This connects to the
+material-vs-forcing distinction: density only modulates motion through the
+collision, and that modulation is non-smooth, so it resists trajectory-fitting.
