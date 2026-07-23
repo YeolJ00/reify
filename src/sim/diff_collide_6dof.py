@@ -48,10 +48,14 @@ def contact_6dof(
     n1: int, ca: wp.array(dtype=wp.vec3), cb: wp.array(dtype=wp.vec3), ra: float, rb: float,
     pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
     vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
-    k: float, cd: float, mu: float,
+    k: float,
+    cd_arr: wp.array(dtype=float),          # normal damping (sets restitution) — recoverable
+    mu_arr: wp.array(dtype=float),          # Coulomb friction — recoverable
     force: wp.array(dtype=wp.vec3), torque: wp.array(dtype=wp.vec3),
 ):
     i = wp.tid()
+    cd = cd_arr[0]
+    mu = mu_arr[0]
     a = i / n1
     b = i % n1
     oa = wp.quat_rotate(rot[0], ca[a])       # world sphere offset (rotated)
@@ -119,14 +123,26 @@ def accum_pos_loss(pos: wp.array(dtype=wp.vec3), target: wp.array(dtype=wp.vec3)
     wp.atomic_add(loss, 0, scale * wp.dot(d, d))
 
 
+@wp.kernel
+def accum_quat_loss(rot: wp.array(dtype=wp.quat), target: wp.array(dtype=wp.quat),
+                    scale: float, loss: wp.array(dtype=float)):
+    # orientation mismatch 1 - (q . q_target)^2  (0 when aligned) -> makes friction observable
+    i = wp.tid()
+    dp = wp.dot(rot[i], target[i])
+    wp.atomic_add(loss, 0, scale * (1.0 - dp * dp))
+
+
 class DiffCollide6DOF:
     def __init__(self, names, pos0, vel0, ang0=None, pitch=0.012, dt=2.0e-4, n_steps=1600,
                  k=3000.0, cd=5.0, mu=0.5, gravity=(0, 0, 0), requires_grad=True):
         assert len(names) == 2
         self.n, self.dt, self.n_steps = 2, dt, n_steps
-        self.k, self.cd, self.mu = float(k), float(cd), float(mu)
+        self.k = float(k)
         self.gravity = wp.vec3(*gravity)
         rg = requires_grad
+        # friction (mu) and normal damping (cd, sets restitution) are recoverable params
+        self.mu = wp.array([float(mu)], dtype=float, requires_grad=rg)
+        self.cd = wp.array([float(cd)], dtype=float, requires_grad=rg)
 
         covers, vols, rads, Gs, Ginvs = [], [], [], [], []
         for name in names:
@@ -160,6 +176,12 @@ class DiffCollide6DOF:
     def set_log_density(self, logd):
         self.log_density.assign(np.asarray(logd, np.float32))
 
+    def set_friction(self, mu):
+        self.mu.assign(np.array([float(mu)], np.float32))
+
+    def set_damping(self, cd):
+        self.cd.assign(np.array([float(cd)], np.float32))
+
     def rollout(self):
         self.pos[0].assign(self.pos0)
         self.rot[0].assign(np.tile([0, 0, 0, 1], (2, 1)).astype(np.float32))
@@ -174,6 +196,7 @@ class DiffCollide6DOF:
                               self.pos[t], self.rot[t], self.vlin[t], self.vang[t],
                               self.k, self.cd, self.mu],
                       outputs=[self.force[t], self.torque[t]])
+            # note: self.cd, self.mu are differentiable arrays -> their gradients flow
             wp.launch(integrate_6dof, 2,
                       inputs=[self.pos[t], self.rot[t], self.vlin[t], self.vang[t],
                               self.force[t], self.torque[t], self.mass, self.inv_mass,

@@ -17,7 +17,8 @@ def img_tag(name, caption):
     if not p.exists():
         return f'<p class="missing">[missing plot: {name}]</p>'
     b64 = base64.b64encode(p.read_bytes()).decode()
-    return (f'<figure><img src="data:image/png;base64,{b64}" alt="{caption}">'
+    mime = "image/gif" if name.endswith(".gif") else "image/png"
+    return (f'<figure><img src="data:{mime};base64,{b64}" alt="{caption}">'
             f"<figcaption>{caption}</figcaption></figure>")
 
 
@@ -469,6 +470,19 @@ still falls out by gradient descent (even a touch sharper than before).</p>
     s += img_tag("diff_collide_6dof.png",
                  "Off-center collision of two real scanned objects: they deflect (left) and spin up "
                  "from the frictional torque (middle); gradient descent recovers the density (right).")
+    s += """
+<h2><span class="tag">M11</span> Density, friction, and restitution — all three, from one collision</h2>
+<p>Not just density: the full contact recipe. From a single collision of two real scanned
+objects, gradient descent recovers <b>how heavy</b> they are, <b>how grippy</b> the contact
+is (friction), and <b>how bouncy</b> it is (restitution) — each to a few percent. Fitting
+the objects' spin as well as their path is what makes friction legible.</p>
+"""
+    s += img_tag("collision.gif",
+                 "The collision itself: two real scanned objects meet, exchange momentum, and tumble "
+                 "with friction — the simulation the parameters are recovered from.")
+    s += img_tag("params_recover.png",
+                 "Three contact parameters recovered at once from that collision: density, friction μ, "
+                 "and restitution all converge to their true values.")
     s += """
 <h2>What's next</h2>
 <ul>

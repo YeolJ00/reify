@@ -654,3 +654,37 @@ differentiable, scale-consistent (ratio recovered), momentum-conserving.
 Remaining niceties: friction/restitution as recoverable theta (the machinery is
 there — they enter the differentiable force), multi-body (N>2) contact broad-phase,
 and coupling this contact into the cloth/scene pipeline for full assetization.
+
+## M11 — friction + restitution as recoverable parameters, and videos (2026-07-23)
+
+Made mu (friction) and cd (normal damping = restitution) differentiable wp.arrays
+in `diff_collide_6dof.py` (kernel reads mu_arr[0], cd_arr[0]); recover all three
+contact params jointly: `scripts/diff_collide_params_recover.py`.
+theta = [log_density_0, mu, log_cd], density_1 fixed (mass-scale gauge).
+
+Key fix — **fit orientation, not just position**. First attempt recovered density
+(0.1%) and cd but mu wandered (0.2-1.8, loss insensitive to it): the position-only
+loss barely sees friction, because friction mainly changes ROTATION. Added an
+orientation term `accum_quat_loss` (1 - (q.q_target)^2, weight 0.02) -> friction
+became observable. Also: near-head-on hit (offset +/-0.015) to excite restitution,
+pre-spin obj0 (14 rad/s) to excite friction, lr 0.04 + keep-best for stability.
+
+Result (true d0=800, mu=0.55, cd=12; init 1600/0.15/40):
+- density   **800.0 (0.0%)**
+- friction  **0.535 vs 0.55 (2.8%)**
+- restitution(cd) **12.02 vs 12.0 (0.2%)**
+All three contact parameters recovered from ONE collision by gradient descent.
+(Effective-e MEASUREMENT is unreliable for glancing mesh collisions -> report the
+cd parameter directly, which is what's identified.) Figure params_recover.png.
+
+**Videos**: no imageio/ffmpeg in the warp env, but matplotlib PillowWriter makes
+animated GIFs (embed inline in the artifact via base64). `render_collision_video.py`
+renders the two real triceratops meshes tumbling through the 6-DOF collision
+(projected, shaded, painter-sorted) -> `outputs/collision.gif`. img_tag() now
+sets image/gif mime so the GIF animates in report.html.
+
+Identifiability note: density<-mass ratio (momentum), friction<-spin transfer
+(needs orientation in the loss + tangential slip), restitution<-normal bounce
+(needs a head-on component + inelastic regime). The off-center-hit-with-pre-spin
+scene excites all three; a purely head-on or purely glancing hit would leave one
+weakly observed.
