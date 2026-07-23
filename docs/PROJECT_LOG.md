@@ -532,3 +532,43 @@ a separate validation. Alternatively an impulse/LCP rigid solver. With momentum
 conserved, the high-res momentum-measurement recovery of the density ratio should
 work directly (it is a linear read-off, no chaotic optimization). The high-res
 OBSERVATION is correct and sufficient; the SOLVER is what currently defeats it.
+
+## M8 — differentiable penalty contact in Warp: the fix (2026-07-23)
+
+Root cause (M7b) was Newton's XPBD contact, not Warp. Fix: write contact
+ourselves as a custom Warp kernel — the same pattern as our wind force — so it is
+differentiable AND momentum-conserving by construction. No Warp patch needed;
+Warp's autodiff handles the custom kernel directly. `src/sim/diff_collide.py`,
+`scripts/diff_collide_recover.py`. Spheres (analytic penetration), mass =
+density * (4/3 pi r^3), semi-implicit integration, penalty contact
+F = k*overlap - c*vrel along the normal.
+
+Two guarantees BY CONSTRUCTION:
+- **momentum conservation**: the pairwise force is antisymmetric (F_ij = -F_ji),
+  so sum of contact forces = 0. Measured drift over the whole rollout:
+  **1.2e-6** (machine precision) vs XPBD's **57 %** loss.
+- **differentiability**: Warp auto-generates the kernel adjoint, so the trajectory-
+  loss gradient flows back to density. Tape grad matches FD to **3e-4 rel err**
+  vs XPBD's **exactly 0**.
+
+Result — two spheres (equal radius, densities 800/400, mass ratio 2) collide
+head-on; recover sphere-0's density from the trajectory by GRADIENT DESCENT
+(Adam, 60 iters): **812 vs true 800 (1.5 %)**, ratio 2.03 vs 2.00. Loss
+1.2e-2 -> 1.4e-5. This is the density recovery from a collision that XPBD
+(LM frozen at init) and CEM (ratio 0.52, inverted) could not do. Figure:
+`outputs/diff_collide.png` (flat momentum) vs `outputs/momentum_nonconservation.png`
+(XPBD 57 % leak).
+
+The trade the user accepted: stiff penalty (k=6000) needs small dt (5e-4 s),
+so it is slower than XPBD — but exact, momentum-conserving, and differentiable.
+Absolute mass scale remains a true gauge (elastic collision is scale-invariant);
+the collision makes the RATIO observable, which is exactly what we recover.
+
+**Next (extend to real assets):** swap the sphere-overlap term for an SDF
+penetration query. Newton meshes already expose `mesh.build_sdf()` (used for the
+M6 forward contact); querying that SDF in a Warp kernel gives differentiable
+penetration for real scanned geometry, keeping momentum conservation and
+gradients. The proof of concept is done; mesh-SDF differentiable contact is the
+remaining engineering. This is the through-line resolved: with a differentiable,
+momentum-conserving contact written in Warp, contact parameters become
+recoverable — the simulator, not the observation or the optimizer, was the wall.

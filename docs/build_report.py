@@ -419,6 +419,37 @@ cleverer optimizer or a finer camera; it is a momentum-conserving contact solver
 an impulse/LCP formulation). The high-resolution observation is already right and sufficient;
 with a faithful solver under it, reading density off a collision becomes a linear
 measurement rather than an impossible fit.</p>
+
+<h2><span class="tag">M8</span> The fix: differentiable contact, written in Warp</h2>
+<p>The wall was the solver, not the framework — and the framework was never the problem.
+Warp differentiates any kernel we write; we had simply been leaning on Newton's built-in
+XPBD contact for the one piece that mattered. So we wrote contact ourselves, the same way
+we wrote the wind force: a <b>penalty contact</b> kernel where the force between two bodies
+is a smooth function of their overlap. That single choice buys both missing properties
+<em>by construction</em> — the pair force is equal-and-opposite, so momentum is conserved
+exactly; and it is an ordinary Warp kernel, so its adjoint exists and the gradient flows.</p>
+<div class="finding"><b>Everything XPBD failed, this passes.</b> Momentum is conserved to
+<b>machine precision</b> (drift 1.2×10⁻⁶, against XPBD's 57% leak). The gradient through the
+collision matches finite differences to <b>3×10⁻⁴</b> (against XPBD's exact zero). And
+density is <b>recovered from the collision by plain gradient descent</b> — 812 vs a true 800
+(1.5%), the mass ratio 2.03 vs 2.00 — the very quantity that froze LM at its initial guess
+and that CEM recovered inverted.</div>
+"""
+    s += img_tag("diff_collide.png",
+                 "Left: a clean head-on collision — the lighter sphere rebounds hard, the heavier one "
+                 "barely deflects, set by the mass ratio. Right: total momentum is flat to machine "
+                 "precision (note the 10⁻⁶ axis span), the exact conservation XPBD violated.")
+    s += """
+<p>The cost is the trade that was offered and accepted: a stiff penalty needs a small time
+step, so this is slower than XPBD — but it is exact, conservative, and differentiable, which
+is what an inverse problem actually needs. Absolute mass stays a true gauge (an elastic
+collision is scale-invariant); the collision makes the <em>ratio</em> observable, and the
+ratio is what we recover. Extending from spheres to the real scanned meshes is now a
+contained piece of engineering — swap the analytic overlap for a differentiable SDF
+penetration query, which Newton's meshes already expose. The project's long thread finally
+ties off in a single sentence: the observation and the optimizer were rarely the wall — the
+simulator's contact was, and a contact written in Warp to be differentiable and
+momentum-conserving is what makes physics recoverable through collision.</p>
 <h2>What's next</h2>
 <ul>
 <li><b>M4 stage 2</b>: swap the self-rendered video for real / generated footage —
