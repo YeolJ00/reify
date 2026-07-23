@@ -62,7 +62,7 @@ class SceneSim:
             top = builder.add_body(is_kinematic=True,
                                    xform=wp.transform(wp.vec3(0.0, 0.0, self.table_top_z - hz), wp.quat_identity()))
             builder.add_shape_box(top, hx=hx, hy=hy, hz=hz,
-                                  cfg=newton.ModelBuilder.ShapeConfig(mu=0.8))
+                                  cfg=newton.ModelBuilder.ShapeConfig(mu=float(t.get("mu", 0.8))))
         else:
             builder.add_ground_plane(cfg=newton.ModelBuilder.ShapeConfig(mu=1.0))
 

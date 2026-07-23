@@ -24,10 +24,11 @@ from src.sim.scene_sim import SceneSim, theta_vec_from_cfg  # noqa: E402
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default=str(REPO / "configs" / "scene.yaml"))
     ap.add_argument("--env", default=None, help="override environment (table|ground)")
     args = ap.parse_args()
 
-    cfg = yaml.safe_load((REPO / "configs" / "scene.yaml").read_text())
+    cfg = yaml.safe_load(Path(args.config).read_text())
     if args.env:
         cfg["environment"] = args.env
     np.random.seed(cfg["seed"])

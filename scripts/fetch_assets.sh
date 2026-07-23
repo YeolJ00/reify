@@ -30,4 +30,20 @@ for t in nor_gl diff arm; do
     "$base/Models/jpg/2k/wooden_table_02/wooden_table_02_${t}_2k.jpg"
 done
 curl -sL -o assets/scenes/studio_small_03_2k.hdr "$base/HDRIs/hdr/2k/studio_small_03_2k.hdr"
+
+# --- city scene (M7 backgrounds): HDRI + street props (PolyHaven CC0) ---
+mkdir -p assets/scenes/city
+curl -sL -o assets/scenes/city/pretville_street_2k.hdr "$base/HDRIs/hdr/2k/pretville_street_2k.hdr"
+for m in painted_wooden_bench street_lamp_01 fire_hydrant; do
+  mkdir -p "assets/scenes/city/$m/textures"
+  urls=$(curl -s "https://api.polyhaven.com/files/$m" | python3 -c "
+import json,sys
+d=json.load(sys.stdin); g=d.get('gltf',{}).get('2k',{}).get('gltf',{})
+print(g.get('url',''))
+for nm,inc in (g.get('include') or {}).items(): print(inc['url'])")
+  ( cd "assets/scenes/city/$m"
+    for u in $urls; do fn=$(basename "$u")
+      case "$u" in *textures*|*.jpg|*.png) curl -sL -o "textures/$fn" "$u";; *) curl -sL -o "$fn" "$u";; esac
+    done )
+done
 echo "assets ready:"; find assets -maxdepth 2 -type d | sort
