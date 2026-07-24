@@ -792,3 +792,34 @@ pattern as the wind kernel). Stiffness (tri_ke) = squishiness.
 
 Confirms the material-from-motion thesis extends from rigid (bounciness/friction) to
 soft (squishiness/stiffness), reusing the differentiable cloth engine from M0-M3.
+
+## M16 — physics from a REAL Wan-generated video (2026-07-24)
+
+`scripts/blender_ball_i0.py`, `scripts/recover_wan_ball.py`. First run of the full
+pipeline on video that WASN'T our own render — Wan 2.2 TI2V-5B generates the motion.
+
+- **Asset choice**: a bouncy ball, rendered in the same city/table scene as the single
+  i2v conditioning frame. Rationale: video models animate FAMILIAR objects (balls) far
+  more physically than an obscure scanned toy, and a ball's centroid tracks trivially by
+  colour + "largest round blob". (Tried the triceratops I0 first — Wan handles the ball
+  far better.)
+- Generated 7 seeds. High-drop seed 0 is the only physics-rich take; low-drop seeds
+  (ball just above table) barely move — no room to fall. Seed 5 flew upward (unphysical).
+- **Tracking is the hard part**: the street scene has other pinkish round things and the
+  shakers are the same salmon as the ball; loose colour tracking drifts. Fixed with a
+  strict "largest round blob, area>3500" detector (24/49 frames valid; the gap is the
+  impact where Wan deforms the ball out of round).
+- **Result (honest)**: Wan's FALL is genuinely gravity-like — from the known ball radius
+  (0.075 m) + 24 fps, recovered g = 8.9 px/f^2 -> **~9.8 m/s^2**, and a free-fall-from-rest
+  model lands exactly with the tracked ball. But the SETTLING is non-physical: after
+  impact the ball bobs ~66 px up and back down in place (constant x, constant apparent
+  radius) — a real ball can't do that. So restitution isn't cleanly readable; the ball
+  does not execute a clean decaying bounce.
+- **This is the thesis in miniature**: you can't read physics straight off a generated
+  video (the raw motion leaves the physical manifold once contact/settling starts). The
+  fall is recoverable; the non-physical settle is exactly what the physics-projection
+  discards. Added as the closing "real test" section of the visual page:
+  https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20
+
+Reproduce: blender_ball_i0.py (I0) -> run_i2v.py wan5b (video) -> recover_wan_ball.py
+(track + fit + figures in outputs/wan_ball/).
