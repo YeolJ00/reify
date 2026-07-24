@@ -769,3 +769,26 @@ matching the gradient-magnitude fade in the cd sweep). Slight consistent
 under-damping bias (recovered a touch bouncier than true), ~tracking-noise level.
 `outputs/scene_compare.png` (height-vs-time + recovered-vs-true). Visual page
 updated: https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20
+
+## M15 — squishy splat with the cloth engine (2026-07-24)
+
+`src/sim/diff_splat.py`, `scripts/render_splat.py`. A free (unpinned) cloth sheet
+dropped TILTED onto the table, using Newton's SemiImplicit cloth solver (which IS
+differentiable) + a custom differentiable ground penalty+friction force (same
+pattern as the wind kernel). Stiffness (tri_ke) = squishiness.
+
+- Stability needed tuning (heavy particles mass 0.04, substeps 48, penalty damping
+  cd=25) — same explicit-cloth envelope as M0.
+- Flat-on-flat gives no signal (both settle flat); TILTED drop makes it collapse/
+  fold, and floppy vs stiff diverge ~10 cm in the transient (floppy conforms flat,
+  stiff stays propped up — clear in `outputs/splat_compare.png`).
+- **Gradient is unreliable** here: the extended cloth-ground contact (many particles
+  landing over the collapse) breaks smoothness (tape != FD), same wall as rigid
+  settling. **CEM (gradient-free) recovers stiffness to 0.1%** (ke 799.6 vs 800) —
+  zeroth-order tolerates the rugged contact landscape, as throughout.
+- Visuals: `splat.gif` (floppy cloth splatting), `splat_compare.png` (floppy vs
+  stiff mid-collapse). Added to the visual page (rigid bounciness + soft squishiness):
+  https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20
+
+Confirms the material-from-motion thesis extends from rigid (bounciness/friction) to
+soft (squishiness/stiffness), reusing the differentiable cloth engine from M0-M3.
