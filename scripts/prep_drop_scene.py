@@ -3,6 +3,7 @@ export its mesh (OBJ), per-frame poses, camera, and true params for the Blender
 render + the recovery. (warp env)
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,17 +18,17 @@ from src.sim.diff_drop import DiffDrop  # noqa: E402
 
 NAME = "Great_Dinos_Triceratops_Toy"
 GROUND_Z = 0.706
-TRUE = dict(density=800.0, cd=7.0, mu=0.5)    # cd = restitution damping
+TRUE = dict(density=800.0, cd=float(os.environ.get("CD","7.0")), mu=0.5)
 POS0 = [0.05, 0.0, 1.30]
 VEL0 = [0.15, 0.0, 0.0]
 ANG0 = [0.0, 0.0, 0.0]
-DT, NSTEPS, STRIDE = 2.0e-4, 2400, 32        # 76 frames: fall + one bounce + rise
+DT, NSTEPS, STRIDE = 2.0e-4, 1900, 26        # fall + impact + immediate response (gradient-stable)
 CAM = dict(eye=[0.90, -0.90, 1.12], target=[0.13, 0.0, 1.0], fov_deg=46, width=680, height=560)
 
 
 def main():
     wp.init()
-    out = REPO / "outputs" / "drop"
+    out = REPO / "outputs" / os.environ.get("SCENE", "drop")
     out.mkdir(parents=True, exist_ok=True)
     with wp.ScopedDevice("cuda:0"):
         sim = DiffDrop(NAME, POS0, VEL0, ANG0, density=TRUE["density"], ground_z=GROUND_Z,

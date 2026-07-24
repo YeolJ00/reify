@@ -752,3 +752,20 @@ Hard-won lessons (all cost cycles):
 This is the milestone the user wanted: a believable staged scene (real object,
 real table, real street), a photorealistic video, and a real physical parameter
 (bounciness) recovered from it by the differentiable Warp pipeline.
+
+## M14 — multi-video test: different bounciness recovered per video (2026-07-24)
+
+Parameterized the drop pipeline by env vars (SCENE=subfolder, CD=true restitution
+damping) across prep/blender/recover, shorter gradient-stable horizon (NSTEPS=1900,
+STRIDE=26 — ends soon after impact so backprop avoids the continuous-contact
+explosion; verified finite gradient for cd 4->28). Ran three scenes, same object/
+drop, different material:
+- Bouncy  (true cd=4):  recovered 3.38  (15%)
+- Medium  (true cd=9):  recovered 7.61  (15%)
+- Dead thud (true cd=18): recovered 12.96 (28%)
+Recovered bounciness tracks truth monotonically; the dead case is fuzzier (once it
+stops bouncing, extra damping barely changes the trajectory — identifiability fades,
+matching the gradient-magnitude fade in the cd sweep). Slight consistent
+under-damping bias (recovered a touch bouncier than true), ~tracking-noise level.
+`outputs/scene_compare.png` (height-vs-time + recovered-vs-true). Visual page
+updated: https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20

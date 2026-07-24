@@ -20,7 +20,7 @@ from src.sim.diff_collide_6dof import _quat_mat  # noqa: E402
 from src.sim.diff_drop import DiffDrop  # noqa: E402
 from src.track.lk import track_video  # noqa: E402
 
-DROP = REPO / "outputs" / "drop"
+DROP = REPO / "outputs" / __import__("os").environ.get("SCENE", "drop")
 
 
 @wp.kernel
@@ -93,8 +93,8 @@ def main():
                           inputs=[sim.pos[f * stride], sim.rot[f * stride], loc, tgt[f], val[f],
                                   Rc, tc, fx, fy, cx, cy, sc], outputs=[sim.loss])
 
-        LOGCD_LO, LOGCD_HI = np.log(2.5), np.log(11.0)  # stay in the bouncy (airborne) regime
-        th = np.array([0.2, np.log(4.0)])   # init: mu, log cd  (wrong)
+        LOGCD_LO, LOGCD_HI = np.log(2.5), np.log(35.0)
+        th = np.array([0.2, np.log(8.0)])   # neutral init (rises for a thud, falls for a bouncy hit)
         m = np.zeros(2); v = np.zeros(2)
         best = (np.inf, th.copy())
         print(f"recovering (true friction={true['mu']}, restitution-damping cd={true['cd']}) ...")

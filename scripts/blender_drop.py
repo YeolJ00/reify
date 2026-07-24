@@ -13,7 +13,8 @@ import mathutils
 import numpy as np
 
 REPO = Path(__file__).resolve().parents[1] if "__file__" in globals() else Path.cwd()
-DROP = REPO / "outputs" / "drop"
+import os
+DROP = REPO / "outputs" / os.environ.get("SCENE", "drop")
 CITY = REPO / "assets" / "scenes" / "city"
 
 
