@@ -9,3 +9,7 @@ trimesh==4.12.2                    # real-asset mesh loading (src/data/assets.py
 fast-simplification==0.1.13        # mesh decimation for rigid sim
 # i2v models live in the separate "video" env (torch cu126 + diffusers 0.39);
 # see docs/PROJECT_LOG.md. Not pinned here — different CUDA stack.
+
+# i2v backends live in the `video` conda env (torch), not `warp`:
+#   diffusers>=0.38  (includes SanaImageToVideoPipeline for the SANA-Video backend)
+#   cotracker  (pip install git+https://github.com/facebookresearch/co-tracker.git)

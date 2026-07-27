@@ -42,7 +42,11 @@ def main():
     q = seed_in_mask(ball_mask0(frames[0], H), n=args.n_queries, seed=0)
     print(f"seeded {len(q)} query points on the ball at frame 0")
     tracks, vis = track_points(frames, q, device="cuda")
-    cen = np.array([tracks[t, vis[t]].mean(0) if vis[t].any() else [np.nan, np.nan]
+    # Robust centroid: median of the VISIBLE points when enough are visible, else fall
+    # back to all points. CoTracker's visibility flag collapses when the object changes
+    # appearance a lot (e.g. SANA's ball shifts colour and scale) even though the point
+    # POSITIONS stay on it — so we don't let the flag throw the track away.
+    cen = np.array([np.median(tracks[t, vis[t]] if vis[t].mean() > 0.3 else tracks[t], axis=0)
                     for t in range(len(frames))])
     out = REPO / "outputs" / "wan_ball"; out.mkdir(parents=True, exist_ok=True)
     dst = out / (Path(args.npz).stem.replace("i2v_wan5b_", "cotrack_") + ".npz")

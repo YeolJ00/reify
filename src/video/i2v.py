@@ -34,6 +34,7 @@ NEGATIVE_PROMPT = (
 WAN_REPO = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 HUNYUAN_REPO = "hunyuanvideo-community/HunyuanVideo-1.5-Diffusers-480p_i2v"
 COSMOS_REPO = "nvidia/Cosmos3-Nano"
+SANA_REPO = "Efficient-Large-Model/SANA-Video_2B_480p_diffusers"
 
 
 def _to_uint8_frames(video) -> np.ndarray:
@@ -70,6 +71,39 @@ class WanI2V:
             negative_prompt=NEGATIVE_PROMPT, height=height, width=width,
             num_frames=num_frames, num_inference_steps=steps,
             guidance_scale=guidance, generator=g,
+        )
+        return _to_uint8_frames(out.frames[0])
+
+
+class SanaI2V:
+    """SANA-Video 2B (NVLabs/MIT, Linear-DiT). ~16 fps native, 480p. Far cheaper
+    than Wan (linear attention). Motion amount is set via a 'motion score: N.' tag
+    appended to the prompt (higher = more motion)."""
+
+    def __init__(self, device="cuda", motion_score=40):
+        import torch
+        from diffusers import FlowMatchEulerDiscreteScheduler, SanaImageToVideoPipeline
+
+        self.torch = torch
+        self.motion_score = motion_score
+        self.pipe = SanaImageToVideoPipeline.from_pretrained(SANA_REPO, torch_dtype=torch.bfloat16)
+        self.pipe.scheduler = FlowMatchEulerDiscreteScheduler.from_config(
+            self.pipe.scheduler.config, flow_shift=8.0)
+        self.pipe.transformer.to(torch.bfloat16)
+        self.pipe.text_encoder.to(torch.bfloat16)
+        self.pipe.vae.to(torch.float32)              # VAE must stay fp32/bf16
+        self.pipe.enable_model_cpu_offload(device=device)
+        self.fps = 16                                # SANA-Video native fps
+
+    def generate(self, image, prompt, num_frames=49, seed=0, height=480, width=832,
+                 steps=50, guidance=6.0):
+        g = self.torch.Generator(device="cuda").manual_seed(seed)
+        full = prompt + STATIC_CAMERA_SUFFIX + f" motion score: {self.motion_score}."
+        out = self.pipe(
+            image=image, prompt=full, negative_prompt=NEGATIVE_PROMPT,
+            height=height, width=width, frames=num_frames,        # SANA uses `frames=`
+            num_inference_steps=steps, guidance_scale=guidance, generator=g,
+            use_resolution_binning=False,        # keep exact size (448x544, both /32)
         )
         return _to_uint8_frames(out.frames[0])
 
@@ -142,7 +176,7 @@ class Cosmos3I2V:
         )
 
 
-BACKENDS = {"wan5b": WanI2V, "hunyuan": HunyuanI2V, "cosmos3": Cosmos3I2V}
+BACKENDS = {"wan5b": WanI2V, "sana": SanaI2V, "hunyuan": HunyuanI2V, "cosmos3": Cosmos3I2V}
 
 
 def save_video(frames: np.ndarray, path: Path, fps: int = 24):

@@ -853,3 +853,28 @@ https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20
 
 Env note: `cotracker` (from git) added to the `video` env; checkpoint scaled_offline.pth
 cached under ~/.cache/torch/hub.
+
+## M18 — add SANA-Video backend; robust CoTracker centroid (2026-07-27)
+
+Added SANA-Video 2B (NVLabs/MIT, `Efficient-Large-Model/SANA-Video_2B_480p_diffusers`)
+as a selectable i2v backend (`src/video/i2v.py` -> `SanaI2V`, key "sana"). It's already
+in our installed diffusers 0.38 (`SanaImageToVideoPipeline`) — no upgrade needed. Uses a
+FlowMatch scheduler (flow_shift=8), motion set via a " motion score: N." prompt tag,
+16 fps native. Note: `frames=` (not `num_frames=`), and `use_resolution_binning=False`
+because the 480 bin remaps 448x544 -> 560x720 which fails the /32 check.
+
+Empirical swap comparison (same high-ball I0, 448x544, 49 frames):
+- **motion score matters a lot.** score=40 -> the scene degrades badly (garish noise band,
+  camera drift despite the static-camera prompt, ball dissolves by ~f42). score=12 -> clean
+  and stable: ball drops, lands, rolls toward the camera, background intact.
+- **appearance drift breaks the visibility flag.** SANA shifts the ball salmon->saturated
+  red and grows it a lot; CoTracker's positions still track it, but visibility collapses to
+  7% (vs Wan 96%). Fix: centroid = median of visible points, FALL BACK to all points when
+  <30% visible (`track_wan_cotracker.py`). Don't throw a track away on the vis flag alone.
+- **rolling read-out holds for both** but Wan is cleaner: height–size corr = -0.98 (Wan,
+  mean-of-visible) vs -0.23 (SANA, all-points). Two effects compound — SANA is harder to
+  track AND its motion is less physically consistent.
+
+Verdict: SANA-Video is a working, faster/smaller alternative, but for the physics pipeline
+(which needs a trackable object with consistent appearance through the motion) **Wan 2.2 is
+the better motion prior right now**. Kept both; page unchanged (the Wan -0.98 result stands).
