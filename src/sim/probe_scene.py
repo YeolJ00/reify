@@ -93,22 +93,32 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
 class ProbeScene:
     def __init__(self, names, pos0, vel0, ang0=None, densities=(600.0, 600.0), ground_z=0.706,
                  pitch=0.020, dt=2.0e-4, n_steps=1400, k=4000.0, cd=8.0, mu=0.5,
-                 gravity=(0.0, 0.0, -9.81)):
+                 gravity=(0.0, 0.0, -9.81), ball_radius=None):
+        # ball_radius: model each body as a single solid sphere instead of a scanned mesh
+        # (used for the generated-video probes, where the objects really are balls)
         self.N = len(names); self.dt, self.n_steps = dt, n_steps
         self.k, self.ground_z = float(k), float(ground_z)
         self.gravity = wp.vec3(*gravity)
 
         cl, body, vols = [], [], []
-        for bi, name in enumerate(names):
-            tm = decimate(load_asset("rigid", name), 400)
-            centers, r = sphere_cover(tm, pitch)
-            self.radius = float(r)
-            cl.append(centers); body.append(np.full(len(centers), bi, np.int32))
-            vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch ** 3)
+        if ball_radius is not None:
+            R = float(ball_radius)
+            self.radius = R
+            for bi in range(self.N):
+                cl.append(np.zeros((1, 3), np.float32)); body.append(np.array([bi], np.int32))
+                vols.append(4.0 / 3.0 * np.pi * R ** 3)
+        else:
+            for bi, name in enumerate(names):
+                tm = decimate(load_asset("rigid", name), 400)
+                centers, r = sphere_cover(tm, pitch)
+                self.radius = float(r)
+                cl.append(centers); body.append(np.full(len(centers), bi, np.int32))
+                vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch ** 3)
         self.center_local = wp.array(np.concatenate(cl), dtype=wp.vec3)
         self.body = wp.array(np.concatenate(body), dtype=int)
         self.nS = int(self.body.shape[0])
         self.volumes = np.asarray(vols, np.float64)
+        self._ball_R = ball_radius
 
         self.mu = wp.array([float(mu)], dtype=float)
         self.cd = wp.array([float(cd)], dtype=float)
@@ -116,7 +126,10 @@ class ProbeScene:
         self.G = wp.zeros(self.N, dtype=wp.mat33); self.Ginv = wp.zeros(self.N, dtype=wp.mat33)
         Gs, Gis = [], []
         for bi in range(self.N):
-            G = unit_mass_inertia(np.concatenate(cl)[np.concatenate(body) == bi])
+            if ball_radius is not None:
+                G = (2.0 / 5.0) * float(ball_radius) ** 2 * np.eye(3)   # solid sphere
+            else:
+                G = unit_mass_inertia(np.concatenate(cl)[np.concatenate(body) == bi])
             Gs.append(G.astype(np.float32)); Gis.append(np.linalg.inv(G).astype(np.float32))
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
         self.set_densities(densities)
