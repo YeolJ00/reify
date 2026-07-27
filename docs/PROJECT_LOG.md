@@ -823,3 +823,33 @@ pipeline on video that WASN'T our own render — Wan 2.2 TI2V-5B generates the m
 
 Reproduce: blender_ball_i0.py (I0) -> run_i2v.py wan5b (video) -> recover_wan_ball.py
 (track + fit + figures in outputs/wan_ball/).
+
+## M17 — harden the Wan pipeline: robust tracking + 3D disentanglement (2026-07-27)
+
+Weak links from M16 were (a) tracking (blob/LK drifted, lost 24/49 frames on impact
+deformation) and (b) only gravity was recoverable. Hardened both.
+
+- **CoTracker3** (`src/track/cotracker.py`, `scripts/track_wan_cotracker.py`): learned
+  point tracker, installed into the `video` env. Seed query points inside the ball's
+  frame-0 colour mask, follow them through blur/squash/occlusion. Result: **96% visible
+  over 49/49 frames** vs 24/49 for the strict blob tracker. Reusable for real video.
+- **Bounce-vs-roll diagnostic** (the headline finding): the ball's apparent SIZE (spread
+  of tracked points = depth proxy) is a near-perfect mirror of its image HEIGHT
+  (**corr = -0.98**). So the up-down in the image is the ball rolling toward/away from the
+  camera on the table — **NOT a vertical bounce**. Better tracking doesn't just track
+  better; it lets us diagnose the true 3D motion the monocular video disguises.
+- **3D physics fit** (`src/sim/diff_sphere.py`, `scripts/recover_wan_ball3d.py`): a
+  differentiable point-sphere (gravity + ground penalty restitution + Coulomb friction)
+  is fit so its CAMERA-PROJECTED centre matches the CoTracker centroid (steps 6-7). The
+  camera is validated (projected start [272,110] vs tracked [271,105], radius match).
+  On the first physical arc (fall + roll to front) it recovers a small launch velocity,
+  mu~0.4, and **cd pinned at its max (restitution ~0)** — independently corroborating the
+  no-bounce diagnostic. Residual ~30 px: Wan's back-and-forth roll on a flat table is
+  non-physical and a flat-table sim can't reproduce it (honest limit, not featured).
+
+Net: the generated-video path is now robust to track and can DIAGNOSE 3D motion, not just
+fit 1D height. Page updated (robust-tracking gif + rolling-vs-bouncing figure):
+https://claude.ai/code/artifact/2554f4fb-dfa7-4331-9b3a-860f77de8e20
+
+Env note: `cotracker` (from git) added to the `video` env; checkpoint scaled_offline.pth
+cached under ~/.cache/torch/hub.
