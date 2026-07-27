@@ -929,3 +929,20 @@ Numerical journey (documented so we don't repeat it):
 Scope/honesty: translation is relaxed, input orientations kept (assets placed upright);
 object-object resting contact is at sphere-cover resolution. For finer/rotational settling
 we'd want a solid (not shell) sphere fill or Newton's rigid solver — noted, not needed yet.
+
+## M21 — "default vs recovered" deformation demo (2026-07-27)
+
+`scripts/default_vs_recovered.py`. The "no default fits all" comparison (user request):
+same tilted cloth drop, two fabrics (floppy ke≈250, stiff ke≈1400). One DEFAULT stiffness
+(ke≈600) is applied to both vs the stiffness recovered per object.
+- floppy: default is 8.8 cm off (too stiff, barely drapes); recovered matches (0 cm).
+- stiff : default is 5.2 cm off (too soft, over-collapses); recovered matches (0 cm).
+Targets chosen in the RESPONSIVE ke range (stiffness saturates >~1500, so 1500 vs 6000 look
+alike — the first attempt accidentally near-fit the stiff case). Figure: 3 cols (observed /
+one-size default / recovered) x 2 rows; the default column is identical in both rows — the
+whole point. This is also our OBJECT-DEFORMATION story: stiffness is read from how the sheet
+deforms as it collapses.
+
+Deformation coverage (for the record): CLOTH / surface deformation = YES (this + M15 splat).
+Volumetric soft SOLIDS (FEM jelly) = not built yet (in θ scope; Newton supports it) — the
+natural next material if we want squishy solids.
