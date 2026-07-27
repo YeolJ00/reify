@@ -13,3 +13,5 @@ fast-simplification==0.1.13        # mesh decimation for rigid sim
 # i2v backends live in the `video` conda env (torch), not `warp`:
 #   diffusers>=0.38  (includes SanaImageToVideoPipeline for the SANA-Video backend)
 #   cotracker  (pip install git+https://github.com/facebookresearch/co-tracker.git)
+#   Cosmos3-Nano backend runs in the isolated `cosmos` conda env instead:
+#     torch cu128 + transformers 5.x + diffusers-from-main (Cosmos3OmniPipeline) + imageio

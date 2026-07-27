@@ -108,6 +108,39 @@ class SanaI2V:
         return _to_uint8_frames(out.frames[0])
 
 
+class CosmosI2V:
+    """Cosmos3-Nano (NVIDIA world foundation model) via Cosmos3OmniPipeline.
+
+    RUNS IN THE `cosmos` CONDA ENV (torch cu128 + diffusers-from-main), not `video`:
+    diffusers 0.38 has no Cosmos3 pipeline. Weights (~33 GB) are cached under HF_HOME.
+    As a world model it produces the most physically-consistent, stable motion of our
+    backends (a real in-place bounce), at 24 fps. Prompts use Cosmos' JSON scene form;
+    the guardrail safety-checker is disabled (enable_safety_checker=False)."""
+
+    def __init__(self, device="cuda"):
+        import torch
+        from diffusers import Cosmos3OmniPipeline
+
+        self.torch = torch
+        self.pipe = Cosmos3OmniPipeline.from_pretrained(
+            "nvidia/Cosmos3-Nano", dtype=torch.bfloat16,
+            enable_safety_checker=False, device_map=device)
+        self.fps = 24
+
+    def generate(self, image, prompt, num_frames=49, seed=0, height=448, width=544,
+                 steps=None, guidance=None):
+        scene = prompt + STATIC_CAMERA_SUFFIX
+        out = self.pipe(
+            prompt='{"scene":"%s"}' % scene.replace('"', "'"),
+            image=image, num_frames=num_frames, height=height, width=width, fps=float(self.fps),
+            generator=self.torch.Generator(device="cuda").manual_seed(seed),
+        )
+        vid = out.video if hasattr(out, "video") else out.frames[0]
+        if hasattr(vid, "ndim") and getattr(vid, "ndim", 0) == 5:
+            vid = vid[0]
+        return _to_uint8_frames(vid)
+
+
 class HunyuanI2V:
     """HunyuanVideo 1.5 480p i2v — the physics/cloth-motion candidate."""
 
@@ -176,7 +209,8 @@ class Cosmos3I2V:
         )
 
 
-BACKENDS = {"wan5b": WanI2V, "sana": SanaI2V, "hunyuan": HunyuanI2V, "cosmos3": Cosmos3I2V}
+BACKENDS = {"wan5b": WanI2V, "sana": SanaI2V, "cosmos": CosmosI2V,
+            "hunyuan": HunyuanI2V, "cosmos3": Cosmos3I2V}
 
 
 def save_video(frames: np.ndarray, path: Path, fps: int = 24):

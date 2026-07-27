@@ -878,3 +878,29 @@ Empirical swap comparison (same high-ball I0, 448x544, 49 frames):
 Verdict: SANA-Video is a working, faster/smaller alternative, but for the physics pipeline
 (which needs a trackable object with consistent appearance through the motion) **Wan 2.2 is
 the better motion prior right now**. Kept both; page unchanged (the Wan -0.98 result stands).
+
+## M19 — Cosmos3 world-model backend: first real bounce from generated video (2026-07-27)
+
+User asked to try Cosmos 3 (SANA-Video 5B/"2.0" isn't released — only the 2B is public).
+Cosmos3-Nano (`nvidia/Cosmos3-Nano`, ~33 GB omni world model) was already cached.
+
+Integration: needs `Cosmos3OmniPipeline` (diffusers main, not our 0.38). Installed
+diffusers-from-main + accelerate into the ISOLATED `cosmos` conda env (torch cu128,
+transformers 5.14, vllm) so the working `video` env is untouched. Pipeline requires
+`cosmos_guardrail`; bypassed with `enable_safety_checker=False`. Prompt is JSON scene
+form. Added `CosmosI2V` backend (key "cosmos") in `src/video/i2v.py`; runs in the cosmos
+env. Gen: 49 frames @448x544 in ~50-70 s (faster than Wan 84 s, SANA 170 s), fits one A6000.
+
+Result — **the best motion prior yet, and the first with recoverable restitution:**
+- **Stable + consistent**: static camera held, no scene degradation, ball keeps its
+  appearance -> CoTracker **99% visible** (vs Wan 96%, SANA 7%).
+- **A REAL vertical bounce in place**: apparent size (depth) varies only **±1%** (Wan/SANA
+  ±6%, i.e. rolling) while height rebounds (fall -> up -> settle). This is the in-place
+  bounce Wan/SANA never produced.
+- **Restitution recovered**: 3D DiffSphere fit through the camera gives cd≈21 (moderately
+  bouncy) — a real, non-zero restitution, vs the dead cd=40 forced by Wan's roll. Model-free
+  rebound/impact-speed ratio ~0.3-0.5. Residual ~22 px (Cosmos's small settling wiggles).
+
+Takeaway: the WORLD model (trained for physical plausibility) gives markedly more physical,
+stable, trackable motion than the general video models — validating world-models as the
+right i2v prior for this pipeline. Comparison figure: `three_priors.png`.
