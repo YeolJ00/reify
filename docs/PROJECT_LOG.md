@@ -966,3 +966,44 @@ FEM shear modulus k_mu (the 'squishiness') from how the cube squashes on impact.
   pancake vs stiff cube).
 
 Deformation coverage now: cloth/surface (M15/M21) AND volumetric solid (M22).
+
+## M23 — the probe→parameter matrix (the "scene as a lab") (2026-07-27)
+
+`src/sim/probe_scene.py`, `scripts/probe_matrix.py`, `scripts/render_probes.py`.
+One scene (teapot A + lion B on the table), three excitations, and a measurement of
+what each experiment can actually identify. θ = {restitution cd, friction mu, density
+ratio ρB/ρA}; truth {12.0, 0.35, 2.0}.
+
+Two methodological traps found and fixed (both worth remembering):
+1. **Soft penalty contact leaks a fake mass signal.** At k=4e3 a PARKED object's static
+   sink depth depends on its density → 10 mm → **13 px** in the image, so "mass ratio"
+   looked identifiable from a probe where B never moves. Fixed by stiff contact
+   (k=4e4 → 0.4 px, dt=1e-4 for stability).
+2. **Zero-noise identifiability is meaningless.** With a perfect model and no noise, any
+   parameter that shifts the image by 0.01 px is "recoverable" — the first matrix came
+   out all-green. Identifiability must be measured against a noise floor: we add 2 px
+   tracking noise (CoTracker scale) and take the median recovery over 40 noise draws.
+   Sims are precomputed per grid value so the noise averaging is free.
+
+**Result (the matrix)** — effect on the image vs the 2 px floor:
+| probe | restitution | friction | mass ratio |
+|---|---|---|---|
+| drop    | ✓ 19.0 px (8% err)  | ✓ 3.3 px (4%)   | ✗ **0.4 px** (invisible) |
+| slide   | ✗ **0.1 px** (invisible) | ✓ 67.3 px (4%) | ✗ **0.4 px** (invisible) |
+| collide | ✓ 95.7 px (7%)      | ✓ 232.8 px (4%) | ✓ **66.9 px (5%)** |
+
+- The push never impacts → **bounciness is literally invisible (0.1 px)**.
+- **Mass stays invisible until the objects collide** (0.4 px → 66.9 px) — the density
+  gauge from M5, now demonstrated as an experiment-design result.
+- The collision is the richest single probe (it identifies all three); the simple probes
+  each see only a subset. Error floor ~4% is the recovery grid resolution, so the honest
+  read is "identified (≈grid floor)" vs "unidentified (≫floor)"; the px effect column is
+  the continuous evidence.
+
+**Held-out prediction**: combine each parameter from the probe that identifies it, then
+predict a FOURTH unseen probe (angled push into B) with no refitting →
+**1.7 px error vs 24.5 px for default parameters (15x better)**. Fitting on one set of
+experiments and predicting a different one is the strongest evidence the recovery is
+physical rather than curve-fitting.
+
+Outputs: `outputs/matrix/probe_matrix.png`, `heldout_prediction.png`, `probes.gif`.
