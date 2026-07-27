@@ -904,3 +904,28 @@ Result — **the best motion prior yet, and the first with recoverable restituti
 Takeaway: the WORLD model (trained for physical plausibility) gives markedly more physical,
 stable, trackable motion than the general video models — validating world-models as the
 right i2v prior for this pipeline. Comparison figure: `three_priors.png`.
+
+## M20 — settling pass for multi-object scenes (2026-07-27)
+
+`src/sim/settle.py`, `scripts/settle_scene.py`. Relaxes a roughly-placed multi-object
+scene (floating, interpenetrating assets) into a sim-ready resting state — the gating
+"consistent initial configuration" item from the sim-readiness discussion.
+
+Numerical journey (documented so we don't repeat it):
+- **Explicit penalty dynamics FAILED** for settling-from-overlap: stiff springs + initial
+  interpenetration eject objects (saw 30 rad/s spins, penetration growing). Velocity
+  clamping just produced a jittering standoff. Penalty/explicit is the wrong tool here.
+- **Root cause of non-convergence**: `sphere_cover` is a SURFACE SHELL, so two objects
+  *resting in contact* already overlap by ~a sphere radius — the solver can't tell
+  "touching" from "penetrating" and repels forever.
+- **What works**: POSITION-BASED relaxation (projected depenetration + a gravity bias that
+  ramps to 0), with (a) a summed, step-CLAMPED push (averaging diluted deep overlaps), and
+  (b) a **contact tolerance** (~one sphere radius) so surface contact is an equilibrium and
+  only true interpenetration is pushed. Unconditionally stable, converges monotonically.
+- Result: rough scene (3 GSO assets floating 10-12 cm up, cores overlapping) -> **0.0 mm
+  penetration, 0.000 mm/iter motion (fully at rest), each object dropped onto the table**.
+  `outputs/settle_before_after.png`, `outputs/settle.gif`.
+
+Scope/honesty: translation is relaxed, input orientations kept (assets placed upright);
+object-object resting contact is at sphere-cover resolution. For finer/rotational settling
+we'd want a solid (not shell) sphere fill or Newton's rigid solver — noted, not needed yet.
