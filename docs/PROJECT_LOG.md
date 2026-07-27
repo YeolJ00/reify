@@ -1007,3 +1007,42 @@ experiments and predicting a different one is the strongest evidence the recover
 physical rather than curve-fitting.
 
 Outputs: `outputs/matrix/probe_matrix.png`, `heldout_prediction.png`, `probes.gif`.
+
+## M24 — the probe→parameter matrix on REAL Cosmos-generated video (2026-07-27)
+
+`scripts/blender_probe_i0.py`, `gen_probe_videos.py`, `src/track/balls.py`,
+`scripts/cosmos_matrix.py`, `cosmos_matrix_figs.py`. The M23 matrix, repeated with the
+targets replaced by video the Cosmos3 world model dreamed up.
+
+Setup: two coloured balls on the real table, three probe initial frames sharing one
+camera; Cosmos generates the motion (14 videos across probes/seeds); balls tracked by
+colour; a two-ball rigid sim (ProbeScene `ball_radius` mode) is fit so its projected
+centres match the tracks. **No ground truth exists**, so each cell reports the EFFECT
+SIZE — how far the best achievable fit moves (px) when the parameter is swept, with the
+unknown launch velocity re-fitted at every step — plus the resulting interval.
+
+Findings, in order of value:
+- **The headline result reproduces**: mass ratio is **invisible in drop and push
+  (0.0 px)** and **strongly recovered only in the collision (72.8 px effect, ratio
+  ≈ 1.41)**. The density gauge and the fact that a collision breaks it — first derived
+  analytically (M5), then measured synthetically (M23) — now hold on generated video.
+- **Friction is invisible in the drop (0.1 px)**: the ball falls straight down and never
+  slides. Matches M23 exactly.
+- **The pipeline REJECTS a non-physical probe.** The push video's path bends **57 px,
+  17% of its length, off a straight line** — but a straight 3-D path must project to a
+  straight image line, and a ball rolling on a flat table has no lateral force. So that
+  motion is physically impossible; the fit refuses it (34 px residual, every parameter
+  flat). This is architecture step 8 ("reject high-residual observations") firing on
+  real generated video, and it is a capability, not a failure.
+- **Most generated collisions are fake.** Causality screening (does blue only move once
+  red actually touches it?) rejected 4 of 6 collide seeds — in those, the target ball
+  accelerates with nothing touching it. Only seed 2 is causal (−3 px surface gap at the
+  moment blue starts moving).
+- Restitution/friction from the collision only give one-sided bounds (they rail at the
+  prior edge); reported as bounds, never as recovered values.
+
+Methods notes: the ball tracker had to be calibrated from the renders — the wooden
+table is *also* reddish (r−g, r−b both large) so a naive red mask swallowed the ball
+into the tabletop; separation is by brightness/blueness, plus the street HDRI contains a
+red car so detection is limited to the table region. Camera validated on generated
+video: projected start [260,169] vs tracked [261,167].
