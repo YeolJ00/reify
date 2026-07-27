@@ -946,3 +946,23 @@ deforms as it collapses.
 Deformation coverage (for the record): CLOTH / surface deformation = YES (this + M15 splat).
 Volumetric soft SOLIDS (FEM jelly) = not built yet (in θ scope; Newton supports it) — the
 natural next material if we want squishy solids.
+
+## M22 — volumetric soft body (FEM jelly) (2026-07-27)
+
+`src/sim/diff_soft.py`, `scripts/recover_soft.py`. Extends deformation recovery from
+cloth (2D surface) to a 3D SOLID: Newton `add_soft_grid` (tetrahedral FEM, 4^3 cube,
+320 tets) + SemiImplicit solver + the same differentiable ground-penalty. Recover the
+FEM shear modulus k_mu (the 'squishiness') from how the cube squashes on impact.
+
+- Stability: low k_mu + contact inverts tets and explodes. Fixed with k_damp=10,
+  lam_ratio=2 (bulk stiffness resists inversion), 64 substeps.
+- Discrimination: soft (k_mu 3k) squashes ~40%, stiff (k_mu 30k) ~6% — clear.
+- **Observability lesson**: a gentle 2.5 cm drop barely distinguishes soft stiffnesses
+  (loss flat, CEM recovered 56% off). A 6 cm drop makes k_mu sharply observable (loss
+  minimum 1.8e-11 at truth). "You recover what the motion exercises" — again.
+- Recovery: coarse log-grid seed + CEM refine (plain CEM collapsed into a shallow
+  local basin) -> **k_mu recovered EXACTLY, 0.0% error** (3000 vs 3000).
+- Videos: `outputs/soft/soft_jelly.gif` (jelly squashing), `soft_compare.png` (soft
+  pancake vs stiff cube).
+
+Deformation coverage now: cloth/surface (M15/M21) AND volumetric solid (M22).
