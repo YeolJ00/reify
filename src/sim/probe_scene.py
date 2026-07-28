@@ -109,7 +109,8 @@ class ProbeScene:
                 vols.append(4.0 / 3.0 * np.pi * R ** 3)
         else:
             for bi, name in enumerate(names):
-                tm = decimate(load_asset("rigid", name), 400)
+                cat, _, nm = name.rpartition("/")
+                tm = decimate(load_asset(cat or "rigid", nm), 400)
                 if mesh_scale is not None:
                     sfac = float(mesh_scale[bi] if hasattr(mesh_scale, "__len__") else mesh_scale)
                     tm = tm.copy(); tm.apply_scale(sfac)

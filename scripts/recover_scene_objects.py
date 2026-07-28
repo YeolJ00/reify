@@ -26,11 +26,12 @@ sys.path.insert(0, str(REPO))
 
 OUT = REPO / "outputs" / "scene" / "probes"
 NOISE_PX = 2.5
-CD_RANGE = (2.0, 90.0)          # normal damping: low = bouncy, high = dead
+CD_RANGE = (2.0, 400.0)   # normal damping: low = bouncy, high = dead thud
 # If the simulator cannot reproduce the generated motion AT ALL, the parameter that
 # best fits garbage is still garbage. A large spread across the scan is not evidence
 # of identification unless the fit itself is credible.
 MAX_FIT_PX = 25.0
+K_CONTACT, SUBSTEPS = 2500.0, 80
 
 
 def object_silhouette(frames, cam, drop_pos, size_m):
@@ -108,12 +109,16 @@ def screen(cen, cam, drop_pos, rest_pos):
     fell = float(P[-1][1] - P[0][1])
     if expect > 4 and fell < 0.35 * expect:
         bad.append(f"barely falls ({fell:.0f}px vs {expect:.0f}px expected)")
+    # falling much FURTHER than the drop height allows means the object left the table
+    # or the tracker slid off it — either way the clip is not the experiment we asked for
+    if expect > 4 and fell > 1.7 * expect:
+        bad.append(f"falls {fell:.0f}px, far past the {expect:.0f}px it was lifted")
     d = P[-1] - P[0]; L = float(np.linalg.norm(d))
     if L > 12:
         n = np.array([-d[1], d[0]]) / L
         if float(np.abs((P - P[0]) @ n).max()) / L > 0.18:
             bad.append("path curves with nothing pushing it")
-    return len(bad) == 0, bad, fell
+    return len(bad) == 0, bad, fell, expect
 
 
 def main():
@@ -142,11 +147,13 @@ def main():
                 d = np.load(t); cen = d["cen"]
                 so = scene_objs[name]
                 rc = 0.5 * (np.array(so["bbox_min"]) + np.array(so["bbox_max"]))
-                ok, why, fell = screen(cen, cam, list(rc + [0, 0, p["drop_h"]]), list(rc))
+                ok, why, fell, expect = screen(cen, cam, list(rc + [0, 0, p["drop_h"]]), list(rc))
                 seed = t.stem.split("seed")[1]
                 print(f"  {name:13s} seed{seed}: {'usable' if ok else 'REJECT ' + '; '.join(why)}"
                       f" (falls {fell:.0f}px)")
-                if ok and (best is None or fell > best[1]):
+                # choose the take whose fall best MATCHES the drop we staged, not the
+                # biggest one — the biggest is usually the most anomalous clip
+                if ok and (best is None or abs(fell - expect) < abs(best[1] - expect)):
                     best = (cen, fell, seed)
             if best is None:
                 results[name] = {"identified": False, "reason": "no usable take"}
@@ -159,24 +166,29 @@ def main():
             # sim's origin and the visual centroid the tracker follows.
             so = scene_objs[name]
             asset_name = Path(so["asset"]).name
+            cat = so["asset"].split("/")[0]
             tm = load_asset("rigid" if "rigid" in so["asset"] else "soft", asset_name)
             vmean = np.asarray(tm.vertices).mean(0) * so["scale"]
             rest_c = np.array(so["pos"], float) + vmean
             drop_c = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + p["drop_h"])]
             nf = len(cen)
             m = ~np.isnan(cen[:, 0])
-            obs_rel = cen - cen[m][0]
+            i0 = int(np.argmax(m))              # first tracked frame — the SAME reference
+            obs_rel = cen - cen[i0]             # must be used for sim and observation
 
             def rms(cd, v0):
-                sc = ProbeScene([asset_name], [drop_c], [[v0[0], v0[1], 0.0]],
-                                densities=(600.0,), ground_z=GZ, dt=1.0 / (24 * 40),
-                                n_steps=nf * 40, k=40000.0, cd=float(cd), mu=0.4,
+                # a mesh cover applies contact through HUNDREDS of spheres at once, so the
+                # per-sphere stiffness must be far lower than for a single-sphere ball or
+                # the body is launched off the table
+                sc = ProbeScene([f'{cat}/{asset_name}'], [drop_c], [[v0[0], v0[1], 0.0]],
+                                densities=(600.0,), ground_z=GZ, dt=1.0 / (24 * SUBSTEPS),
+                                n_steps=nf * SUBSTEPS, k=K_CONTACT, cd=float(cd), mu=0.4,
                                 mesh_scale=[so["scale"]], pitch=0.020)
-                sc.rollout(); P = sc.positions(40)
+                sc.rollout(); P = sc.positions(SUBSTEPS)
                 if not np.isfinite(P).all():
                     return 1e6
                 uv, _ = cam.project(P[:nf, 0])
-                sim_rel = uv - uv[0]
+                sim_rel = uv - uv[i0]
                 return float(np.sqrt(((sim_rel[m] - obs_rel[m]) ** 2).mean()))
 
             scan = np.geomspace(*CD_RANGE, 9)

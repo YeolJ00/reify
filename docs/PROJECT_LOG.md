@@ -1117,3 +1117,38 @@ exercised so far are PLACEHOLDERS — per-object recovery for these props is the
 **Video vs simulation** (`scripts/video_vs_sim.py`) — side-by-side of the Cosmos clip and
 our simulator running the material fitted from it, same camera and backdrop, for the drop
 and collide probes. (Frames rendered explicitly; FuncAnimation+PillowWriter sheared them.)
+
+## M27 — per-object recovery on the authored scene; screening hardened (2026-07-28)
+
+Full loop run per scene object: lift the object in its own scene -> Cosmos drop video
+(24 clips over 5 objects) -> CoTracker -> physical screening -> fit -> SimReady USD.
+
+**Result, honestly: 1 of 7 objects carries a measured value.** The apple's restitution
+recovers cleanly (e=0.361, from cd=7.5, 11.3 px fit). The other four probed objects fail
+the credibility gate with residuals 28-37 px; the two unprobed ones keep class priors.
+All of this is recorded in the asset as provenance/confidence, so nothing is silently
+guessed. Note the coincidence that matters: our credibility threshold (25 px) sits right
+at the ~26 px physical inconsistency we measured for Cosmos clips in M25 — most objects
+fail because the generated motion is only ~30 px consistent with ANY physics, not because
+the fit is broken.
+
+Bugs found and fixed along the way (each was silently producing wrong answers):
+- **Tracker seeded on the wall.** Seed radius used the object's LARGEST dimension, so a
+  tall thin vase (12.6 cm wide, 24.8 cm tall) got a seed circle full of background and
+  CoTracker followed the wall — the vase looked like it "barely fell". Now uses the
+  smallest horizontal extent.
+- **A 233 px fit was reported as "identified".** A large scan spread is not identification
+  if the simulator cannot reproduce the motion at all; added a fit-credibility gate.
+- **Equivalent-sphere modelling.** A vase and a duck do not land like a ball. Now uses the
+  real mesh sphere-covered at its as-placed scale (ProbeScene gained `mesh_scale`, and
+  accepts "category/name" so soft/ assets load).
+- **Mismatched reference frames** in the relative-motion loss (sim indexed from frame 0,
+  observation from the first *tracked* frame).
+- **Mesh covers need far softer contact**: hundreds of spheres each pushing at k=4e4
+  launched the body off the table; k=2500 with 80 substeps is stable.
+- **Take selection picked the biggest fall**, i.e. the most anomalous clip (a vase
+  "falling" 218 px when only 85 px was possible). Now picks the fall closest to the one
+  we staged, and rejects falls beyond 1.7x the staged drop.
+
+Restitution is written to USD as a real coefficient by running the recovered sim and
+measuring rebound/impact speed, rather than inventing a cd->e mapping.
