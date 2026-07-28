@@ -33,6 +33,10 @@ LAYOUTS = {
     "drop":    ([0.02, 0.02, 0.90], [0.30, 0.14, REST]),
     "push":    ([-0.19, 0.00, REST], [0.32, 0.20, REST]),
     "collide": ([-0.19, 0.00, REST], [0.07, 0.00, REST]),
+    # HELD-OUT: a second collision with different geometry (further apart, offset so the
+    # hit is glancing). Never used for fitting — only to test that the recovered material
+    # transfers to an experiment the parameters were not tuned on.
+    "heldout": ([-0.26, -0.06, REST], [0.06, 0.03, REST]),
 }
 COL_A = (0.85, 0.10, 0.08)      # red   — the driven ball
 COL_B = (0.10, 0.22, 0.80)      # blue  — the target ball

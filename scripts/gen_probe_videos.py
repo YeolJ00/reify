@@ -32,6 +32,9 @@ PROMPTS = {
     "collide": "The red ball rolls across the wooden tabletop toward the blue ball, hits the "
                "blue ball, and knocks the blue ball rolling away. The red ball slows down "
                "after the impact.",
+    "heldout": "The red ball rolls across the wooden tabletop toward the blue ball, strikes it "
+               "off-centre, and the blue ball is knocked away to the side while the red ball "
+               "slows and deflects.",
 }
 SEEDS = [int(x) for x in os.environ.get("SEEDS", "0,1").split(",")]
 ONLY = [x for x in os.environ.get("ONLY", "").split(",") if x]
