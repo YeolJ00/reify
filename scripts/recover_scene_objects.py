@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO))
 
 OUT = REPO / "outputs" / "scene" / "probes"
 NOISE_PX = 2.5
-CD_RANGE = (2.0, 400.0)   # normal damping: low = bouncy, high = dead thud
+CD_RANGE = (0.5, 400.0)   # normal damping: low = bouncy, high = dead thud
 # If the simulator cannot reproduce the generated motion AT ALL, the parameter that
 # best fits garbage is still garbage. A large spread across the scan is not evidence
 # of identification unless the fit itself is credible.
@@ -111,8 +111,9 @@ def screen(cen, cam, drop_pos, rest_pos):
     uv_d, _ = cam.project(np.array([drop_pos])); uv_r, _ = cam.project(np.array([rest_pos]))
     expect = float(uv_r[0][1] - uv_d[0][1])            # how far down it should land, px
     fell = float(P[-1][1] - P[0][1])
-    if expect > 4 and fell < 0.35 * expect:
-        bad.append(f"barely falls ({fell:.0f}px vs {expect:.0f}px expected)")
+    MIN_FALL_PX = 25.0
+    if fell < MIN_FALL_PX:
+        bad.append(f"only falls {fell:.0f}px — too little motion to measure")
     # falling much FURTHER than the drop height allows means the object left the table
     # or the tracker slid off it — either way the clip is not the experiment we asked for
     if expect > 4 and fell > 1.7 * expect:
@@ -156,14 +157,17 @@ def main():
                 seed = t.stem.split("seed")[1]
                 print(f"  {name:13s} seed{seed}: {'usable' if ok else 'REJECT ' + '; '.join(why)}"
                       f" (falls {fell:.0f}px)")
-                # choose the take whose fall best MATCHES the drop we staged, not the
-                # biggest one — the biggest is usually the most anomalous clip
-                if ok and (best is None or abs(fell - expect) < abs(best[1] - expect)):
-                    best = (cen, fell, seed)
+                # prefer the take that actually shows a REBOUND — that is the motion the
+                # parameter lives in. (Falls closest-to-staged is the wrong criterion once
+                # the loss is scale-free.)
+                sg = drop_signature(cen[:, 1])
+                score = (sg["rebound_fraction"] if sg else -1.0) * (1.0 if ok else -1.0)
+                if ok and (best is None or score > best[3]):
+                    best = (cen, fell, seed, score)
             if best is None:
                 results[name] = {"identified": False, "reason": "no usable take"}
                 continue
-            cen, fell, seed = best
+            cen, fell, seed, _score = best
             # Use the object's REAL geometry (sphere-covered, scaled as placed in the
             # scene) rather than an equivalent sphere: a vase and a duck do not land like
             # a ball. The body origin is the mesh's vertex mean, so we fit RELATIVE motion
@@ -175,13 +179,23 @@ def main():
             tm = load_asset("rigid" if "rigid" in so["asset"] else "soft", asset_name)
             vmean = np.asarray(tm.vertices).mean(0) * so["scale"]
             rest_c = np.array(so["pos"], float) + vmean
-            drop_c = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + p["drop_h"])]
+            # Cosmos often drops the object only part of the way. The signature is scale
+            # free, but the sim's impact speed is not — so simulate the drop that was
+            # actually observed, treating the effective height as a per-clip nuisance.
+            uv_d, _ = cam.project(np.array([rest_c + np.array([0, 0, p["drop_h"]])]))
+            uv_r, _ = cam.project(np.array([rest_c]))
+            expect_px = float(uv_r[0][1] - uv_d[0][1])
+            h_eff = float(p["drop_h"] * np.clip(fell / max(expect_px, 1e-6), 0.3, 1.3))
+            drop_c = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + h_eff)]
             nf = len(cen)
             m = ~np.isnan(cen[:, 0])
             i0 = int(np.argmax(m))              # first tracked frame — the SAME reference
             obs_rel = cen - cen[i0]             # must be used for sim and observation
 
             obs_sig = drop_signature(cen[:, 1])
+            if obs_sig is None:
+                results[name] = {"identified": False, "why": "no landing detected"}
+                print(f"  -> {name}: no landing detected"); continue
 
             def rms(cd, v0):
                 # a mesh cover applies contact through HUNDREDS of spheres at once, so the
@@ -242,7 +256,7 @@ def main():
                              "interval": [float(scan[lo_i]), float(scan[hi_i])], "frac": frac,
                              "scan": scan.tolist(), "errs": errs.tolist()}
             unit = "px" if LOSS == "pixel" else ""
-            print(f"     observed: {describe(obs_sig)}")
+            print(f"     observed: {describe(obs_sig)} | effective drop {h_eff*100:.0f}cm of {p['drop_h']*100:.0f}cm staged")
             print(f"  -> {name}: cd={scan[i]:.1f} fit={errs[i]:.3g}{unit} spread={spread:.3g}{unit} "
                   f"[{scan[lo_i]:.0f}-{scan[hi_i]:.0f}] "
                   f"{'IDENTIFIED' if ident else 'NOT identified: ' + why}")
