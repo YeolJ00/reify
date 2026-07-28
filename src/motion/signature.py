@@ -38,7 +38,7 @@ def _clean(y, smooth=3):
     return y
 
 
-def drop_signature(y_image, hold_frames=3, still_eps=0.015):
+def drop_signature(y_image, x_image=None, hold_frames=3, still_eps=0.015):
     """y_image: object's image-y per frame (DOWN is positive). Returns features or None.
 
     Everything is computed from height h = -y, in units of the drop itself, so the
@@ -63,14 +63,25 @@ def drop_signature(y_image, hold_frames=3, still_eps=0.015):
     moving = np.where(v[i_hit:] > still_eps)[0]
     settle_frac = float((moving[-1] + 1) / max(n - i_hit, 1)) if len(moving) else 0.0
 
+    # FRICTION CHANNEL. Restitution lives in the vertical rebound; friction lives in how
+    # far the object travels sideways after it lands. Without this the signature is blind
+    # to friction and no amount of joint fitting can recover it.
+    slide_frac = 0.0
+    if x_image is not None:
+        xs = _clean(x_image)
+        if xs is not None and len(xs) == n:
+            slide_frac = float(np.clip(abs(xs[-1] - xs[i_hit]) / drop, 0.0, 3.0))
+
     return {"rebound_fraction": rebound_fraction,
             "settle_frac": settle_frac,
             "fall_frac": float(i_hit / n),
+            "slide_frac": slide_frac,
             "drop_px": float(drop)}
 
 
 # how much each feature matters, and the scale on which a difference is "large"
-WEIGHTS = {"rebound_fraction": 1.0, "settle_frac": 0.45, "fall_frac": 0.35}
+WEIGHTS = {"rebound_fraction": 1.0, "settle_frac": 0.45, "fall_frac": 0.35,
+           "slide_frac": 0.8}   # the friction channel
 
 
 def signature_distance(a, b):
@@ -84,6 +95,6 @@ def signature_distance(a, b):
 def describe(sig):
     if sig is None:
         return "no landing detected"
-    return (f"rebound {sig['rebound_fraction']*100:.0f}% of the drop, "
-            f"settles over {sig['settle_frac']*100:.0f}% of the clip, "
-            f"lands {sig['fall_frac']*100:.0f}% in")
+    return (f"rebound {sig['rebound_fraction']*100:.0f}%, "
+            f"slides {sig.get('slide_frac',0)*100:.0f}% of the drop sideways, "
+            f"settles over {sig['settle_frac']*100:.0f}%, lands {sig['fall_frac']*100:.0f}% in")
