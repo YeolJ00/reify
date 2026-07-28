@@ -1183,3 +1183,40 @@ behaviour and it locates the error where it belongs: in the instrument, not the 
 Gating fixes made at the same time: failed/unstable rollouts (1e6 sentinels) no longer
 pollute the spread statistic, and identification requires the near-optimal interval to be
 a small fraction of the scanned range rather than merely "spread > noise".
+
+## M29 — escalation: what actually moved the needle (2026-07-28)
+
+Ran the planner's escalation ladder on the failing scene objects. Three passes, same
+objects/scene/fitting code:
+  v1  "falls, lands and settles", 16 cm drop, tight camera
+  v2  "visibly bounces", 30 cm drop, camera re-framed for headroom
+  v3  "visibly bounces", 16 cm drop, tight camera   (prompt isolated)
+
+**The escalation itself was essentially a null.** Mean rebound delivered by Cosmos:
+v1 7.9% -> v3 8.8% (prompt alone), and v2's bigger drop gave 9% while dropping mean
+tracking coverage 71% -> 51% (the re-framed camera makes objects smaller and faster).
+Neither asking for a bounce nor doubling the drop height controls how much the model
+rebounds. Individual takes DO reach 34-39% rebound, so the information exists — the job
+is selecting those takes, not commanding them.
+
+**What actually moved the needle was fixing our own screening** (see M29 commit): the
+"barely falls" gate, written for the pixel loss, was discarding exactly the informative
+clips because the signature is normalised by the ACTUAL drop. On identical v1 clips with
+no new video, identified went 1/5 -> 3/5. Pooling all compatible takes (v1+v3, 39 tracks)
+gives **5/5 identified**, each with a tight damping interval.
+
+**Final asset: 4/7 objects carry a measured restitution**, and three of the four are
+physically right:
+    baseball      e=0.505   (real baseball on a hard surface is ~0.5)   plausible
+    brass_pot     e=0.099   (heavy metal barely bounces)                plausible
+    rubber_duck   e=0.770   (hollow rubber)                             plausible
+    ceramic_vase  e=0.980   SUSPECT — a ceramic vase does not bounce like a superball
+The vase failure is diagnosable and worth fixing properly: **the drop signature assumes
+bouncing, not toppling.** A tall object that tips over raises its centroid, which the
+rebound feature misreads as a bounce. Next fix is to detect toppling (orientation change)
+and either reject the take or use a different signature for tall objects.
+Also open: the apple is identified but `measure_restitution` returns None for it, so it
+silently falls back to a prior — a gap that is logged but not yet chased.
+
+The "dead baseball" of M28 is fully explained and gone: it was our prompt telling the
+model not to bounce AND our screen discarding the takes that did.
