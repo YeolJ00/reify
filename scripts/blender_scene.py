@@ -21,18 +21,19 @@ REPO = Path(__file__).resolve().parents[1] if "__file__" in globals() else Path.
 OUT = REPO / "outputs" / "scene"
 CITY = REPO / "assets" / "scenes" / "city"
 
-CAM = {"eye": [1.25, -1.35, 1.42], "target": [0.0, 0.0, 0.80], "fov_deg": 46,
+CAM = {"eye": [0.92, -1.02, 1.22], "target": [-0.02, 0.02, 0.80], "fov_deg": 44,
        "width": 960, "height": 640}
 GROUND_Z = 0.706
 
 # name -> (asset folder, (x, y) on the table, z-rotation, scale)
 PROPS = {
-    "rubber_duck":  ("soft/rubber_duck_toy", (-0.34, 0.10), 0.6, 0.55),
-    "brass_pot":    ("rigid/brass_pot_01", (0.30, 0.16), 0.0, 0.60),
-    "ceramic_vase": ("rigid/ceramic_vase_01", (0.05, 0.24), 0.4, 0.60),
-    "wooden_bowl":  ("rigid/wooden_bowl_01", (-0.05, -0.10), 0.0, 0.60),
-    "baseball":     ("rigid/baseball_01", (0.30, -0.16), 0.0, 1.0),
-    "apple":        ("rigid/food_apple_01", (-0.28, -0.20), 0.0, 1.0),
+    "rubber_duck":  ("soft/rubber_duck_toy", (-0.30, 0.07), 0.9, 0.62),
+    "brass_pot":    ("rigid/brass_pot_01", (0.28, 0.13), 0.0, 0.62),
+    "ceramic_vase": ("rigid/ceramic_vase_01", (0.06, 0.20), 0.4, 0.62),
+    "wooden_bowl":  ("rigid/wooden_bowl_01", (-0.04, -0.09), 0.0, 0.62),
+    "baseball":     ("rigid/baseball_01", (0.26, -0.14), 0.0, 1.0),
+    "apple":        ("rigid/food_apple_01", (-0.24, -0.18), 0.0, 1.0),
+    "book":         ("rigid/book_encyclopedia_set_01", (-0.02, 0.06), 1.35, 0.42),
 }
 
 
