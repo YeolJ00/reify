@@ -62,11 +62,14 @@ def main():
     from PIL import Image, ImageSequence
 
     n = len(data)
-    fig, axes = plt.subplots(n, 2, figsize=(9.2, 3.5 * n), facecolor="#141210")
+    fig, axes = plt.subplots(n, 2, figsize=(7.8, 2.95 * n), facecolor="#141210")
     axes = np.atleast_2d(axes)
     fig.subplots_adjust(left=0.01, right=0.99, top=0.94, bottom=0.01, wspace=0.03, hspace=0.12)
     N = min(len(d[1]) for d in data)
-    sel = list(range(0, N, 3))
+    # show EVERY frame at the source rate — decimating to a third made the motion
+    # unreadable. (The source itself is 24fps, so a 0.3s bounce is only ~7 frames;
+    # that is a genuine limit of the generated clip, not of the playback.)
+    sel = list(range(N))
 
     def draw(k):
         t = sel[k]
@@ -89,13 +92,13 @@ def main():
     for k in range(len(sel)):
         draw(k)
         buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=100, facecolor="#141210")
+        fig.savefig(buf, format="png", dpi=86, facecolor="#141210")
         buf.seek(0)
         frames_png.append(Image.open(buf).convert("RGB"))
     p = OUT / "video_vs_sim.gif"
     size = frames_png[0].size
-    fs = [f.resize(size).convert("P", palette=Image.ADAPTIVE, colors=112) for f in frames_png]
-    fs[0].save(p, save_all=True, append_images=fs[1:], loop=0, duration=140, optimize=True)
+    fs = [f.resize(size).convert("P", palette=Image.ADAPTIVE, colors=72) for f in frames_png]
+    fs[0].save(p, save_all=True, append_images=fs[1:], loop=0, duration=42, optimize=True)
     print(f"wrote {p} ({p.stat().st_size // 1024} KiB, {len(fs)} frames)")
     return 0
 

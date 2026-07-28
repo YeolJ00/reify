@@ -1220,3 +1220,41 @@ silently falls back to a prior — a gap that is logged but not yet chased.
 
 The "dead baseball" of M28 is fully explained and gone: it was our prompt telling the
 model not to bounce AND our screen discarding the takes that did.
+
+## M30 — joint fitting, and the finding that matters: the model is not repeatable (2026-07-28)
+
+Two things asked for: play the clips at full frame rate, and optimise jointly.
+
+**Frame rate** was our GIFs, not the videos: source is 49 frames @24fps, our GIFs showed
+17 frames @7fps (every 3rd frame). Fixed to play every frame at 24fps. The residual
+limit is real but smaller: a 0.3 s bounce is only ~7 source frames.
+
+**Joint fitting across takes made things worse** — 5/5 identified -> 1/5 — and chasing
+why produced the most important measurement of the project:
+
+    same object, same prompt, only the seed differs; rebound as % of the fall
+      baseball      0, 0, 0, 0, 6, 26, 32, 34      (34 point spread)
+      apple         0, 0, 0, 3, 8, 20              (20)
+      brass_pot     0, 3, 6, 7, 9, 9               (9)
+      ceramic_vase  0, 0, 0, 2, 4, 4, 15, 17, 39   (39)
+      rubber_duck   0, 0, 0, 1, 2, 3, 13, 17, 28   (28)
+    mean spread 26 percentage points
+
+**Cosmos is not repeatable.** No single material can explain both a 0% and a 34% rebound,
+which is exactly why a pooled objective fits none of them. So the estimator was replaced
+with a CONSENSUS test: fit each take on its own, then ask whether the takes agree; the
+agreement IS the uncertainty. Result: only the baseball's takes agree (within 1.5x);
+apple's disagree by 5x and the vase's by 8x.
+
+**This retracts M29's headline.** The "4/7 objects, 3 of 4 matching textbook values"
+result came from selecting the bounciest take per object — cherry-picking. Under a
+reproducibility test those values do not survive: the baseball's 0.505 was reproducible,
+the others were selection artefacts. The right claim today is: the pipeline works and
+can now MEASURE its own reliability, and by that measure generated video is not yet a
+repeatable instrument for per-object material recovery.
+
+Constructive read: the information is present (takes reaching 26-39% rebound exist), it
+is just not reproducible on demand. Paths forward are more seeds with consensus (costly
+but works — the baseball did converge), a more deterministic conditioning, or a video
+model whose physics is stable across seeds. This is a measurable acceptance criterion to
+hold future models to.

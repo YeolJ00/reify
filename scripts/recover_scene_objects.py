@@ -35,6 +35,7 @@ K_CONTACT, SUBSTEPS = 2500.0, 80
 # LOSS=signature (default) fits the motion signature — rebound fraction, settle time —
 # instead of the pixel trajectory. LOSS=pixel keeps the old objective for comparison.
 LOSS = os.environ.get("LOSS", "signature")
+JOINT = os.environ.get("JOINT", "1") != "0"   # fit one material across ALL takes
 MAX_SIG_DIST = 0.18        # a signature this far off means the sim does not move like the video
 
 
@@ -148,7 +149,7 @@ def main():
             trks = sorted(OUT.glob(f"trk_{name}_seed*.npz"))
             if not trks:
                 print(f"{name}: no tracks yet"); continue
-            best = None
+            best = None; usable = []
             for t in trks:
                 d = np.load(t); cen = d["cen"]
                 so = scene_objs[name]
@@ -161,6 +162,11 @@ def main():
                 # parameter lives in. (Falls closest-to-staged is the wrong criterion once
                 # the loss is scale-free.)
                 sg = drop_signature(cen[:, 1])
+                # An object's material is ONE quantity shared by every take of it, so keep
+                # all usable takes and let them constrain it together rather than betting
+                # everything on a single clip.
+                if ok and sg is not None:
+                    usable.append((cen, fell, seed, sg))
                 score = (sg["rebound_fraction"] if sg else -1.0) * (1.0 if ok else -1.0)
                 if ok and (best is None or score > best[3]):
                     best = (cen, fell, seed, score)
@@ -197,6 +203,30 @@ def main():
                 results[name] = {"identified": False, "why": "no landing detected"}
                 print(f"  -> {name}: no landing detected"); continue
 
+            # per-take effective drop height (Cosmos often drops only part way)
+            uv_d0, _ = cam.project(np.array([rest_c + np.array([0, 0, p["drop_h"]])]))
+            uv_r0, _ = cam.project(np.array([rest_c]))
+            exp_px = float(uv_r0[0][1] - uv_d0[0][1])
+            takes = [(sg, float(p["drop_h"] * np.clip(f / max(exp_px, 1e-6), 0.3, 1.3)), sd)
+                     for (_c, f, sd, sg) in usable]
+
+            def joint_cost(cd):
+                """One material, every take of this object. Median over takes so a single
+                anomalous clip cannot dominate, but all of them have to be explained."""
+                ds = []
+                for sg, h_t, _sd in takes:
+                    c_t = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + h_t)]
+                    sc = ProbeScene([f'{cat}/{asset_name}'], [c_t], [[0.0, 0.0, 0.0]],
+                                    densities=(600.0,), ground_z=GZ, dt=1.0 / (24 * SUBSTEPS),
+                                    n_steps=nf * SUBSTEPS, k=K_CONTACT, cd=float(cd), mu=0.4,
+                                    mesh_scale=[so["scale"]], pitch=0.020)
+                    sc.rollout(); P = sc.positions(SUBSTEPS)
+                    if not np.isfinite(P).all():
+                        ds.append(1e6); continue
+                    uv, _ = cam.project(P[:nf, 0])
+                    ds.append(signature_distance(drop_signature(uv[:, 1]), sg))
+                return float(np.median(ds)) if ds else 1e6
+
             def rms(cd, v0):
                 # a mesh cover applies contact through HUNDREDS of spheres at once, so the
                 # per-sphere stiffness must be far lower than for a single-sphere ball or
@@ -215,13 +245,55 @@ def main():
                 return signature_distance(drop_signature(uv[:, 1]), obs_sig)
 
             scan = np.geomspace(*CD_RANGE, 9)
-            errs = []
-            for cd in scan:
-                b = 1e9
-                for vx in np.linspace(-0.25, 0.25, 3):
-                    for vy in np.linspace(-0.25, 0.25, 3):
-                        b = min(b, rms(cd, (vx, vy)))
-                errs.append(b)
+            if JOINT and len(takes) > 1:
+                # CONSENSUS, not pooling. Cosmos is not repeatable: the same object under
+                # the same prompt rebounds anywhere from 0% to 39% depending on seed, so
+                # no single material explains every take and a pooled/median objective
+                # fits none of them. Instead fit each take on its own and ask whether the
+                # takes AGREE — the agreement is the honest uncertainty.
+                per_take = []
+                for sg, h_t, sd in takes:
+                    c_t = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + h_t)]
+                    ds = []
+                    for cd in scan:
+                        sc = ProbeScene([f'{cat}/{asset_name}'], [c_t], [[0.0, 0.0, 0.0]],
+                                        densities=(600.0,), ground_z=GZ, dt=1.0 / (24 * SUBSTEPS),
+                                        n_steps=nf * SUBSTEPS, k=K_CONTACT, cd=float(cd), mu=0.4,
+                                        mesh_scale=[so["scale"]], pitch=0.020)
+                        sc.rollout(); P = sc.positions(SUBSTEPS)
+                        ds.append(signature_distance(drop_signature(cam.project(P[:nf, 0])[0][:, 1]), sg)
+                                  if np.isfinite(P).all() else 1e6)
+                    ds = np.array(ds)
+                    if ds.min() < MAX_SIG_DIST:
+                        per_take.append((float(scan[int(np.argmin(ds))]), float(ds.min()), sd))
+                if len(per_take) >= 2:
+                    vals = np.array([v for v, _e, _s in per_take])
+                    lo_q, med, hi_q = (float(np.percentile(np.log(vals), q)) for q in (25, 50, 75))
+                    agree = float(np.exp(hi_q - lo_q))     # IQR as a multiplicative factor
+                    results[name] = {
+                        "identified": bool(agree < 4.0), "why": ("ok" if agree < 4.0 else
+                            f"takes disagree by {agree:.0f}x — model not repeatable here"),
+                        "cd": float(np.exp(med)), "loss": LOSS, "obs_signature": obs_sig,
+                        "per_take": [{"cd": v, "err": e, "seed": sd} for v, e, sd in per_take],
+                        "n_takes": len(per_take), "agreement_factor": agree,
+                        "interval": [float(np.exp(lo_q)), float(np.exp(hi_q))],
+                        "frac": float(np.log(np.exp(hi_q) / np.exp(lo_q)) / np.log(scan[-1] / scan[0])),
+                        "fit_px": float(np.median([e for _v, e, _s in per_take])), "seed": "consensus"}
+                    r = results[name]
+                    print(f"     {len(per_take)} takes fitted -> cd {[f'{v:.0f}' for v,_,_ in per_take]}")
+                    print(f"  -> {name}: cd={r['cd']:.1f} [{r['interval'][0]:.0f}-{r['interval'][1]:.0f}] "
+                          f"takes agree within {agree:.1f}x  "
+                          f"{'IDENTIFIED' if r['identified'] else 'NOT identified: ' + r['why']}")
+                    continue
+                errs = [joint_cost(cd) for cd in scan]
+            else:
+                errs = []
+                for cd in scan:
+                    b = 1e9
+                    for vx in np.linspace(-0.25, 0.25, 3):
+                        for vy in np.linspace(-0.25, 0.25, 3):
+                            b = min(b, rms(cd, (vx, vy)))
+                    errs.append(b)
             errs = np.array(errs)
             ok_sim = errs < 1e5                       # drop failed/unstable rollouts
             if ok_sim.sum() < 3:
@@ -254,9 +326,10 @@ def main():
                              "cd": float(scan[i]), "seed": seed,
                              "spread_px": spread, "fit_px": best_err, "railed": bool(railed),
                              "interval": [float(scan[lo_i]), float(scan[hi_i])], "frac": frac,
-                             "scan": scan.tolist(), "errs": errs.tolist()}
+                             "scan": scan.tolist(), "errs": errs.tolist(),
+                             "n_takes": len(takes), "joint": bool(JOINT and len(takes) > 1)}
             unit = "px" if LOSS == "pixel" else ""
-            print(f"     observed: {describe(obs_sig)} | effective drop {h_eff*100:.0f}cm of {p['drop_h']*100:.0f}cm staged")
+            print(f"     {len(takes)} usable take(s) | best: {describe(obs_sig)} | effective drop {h_eff*100:.0f}cm of {p['drop_h']*100:.0f}cm staged")
             print(f"  -> {name}: cd={scan[i]:.1f} fit={errs[i]:.3g}{unit} spread={spread:.3g}{unit} "
                   f"[{scan[lo_i]:.0f}-{scan[hi_i]:.0f}] "
                   f"{'IDENTIFIED' if ident else 'NOT identified: ' + why}")
