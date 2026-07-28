@@ -37,7 +37,8 @@ def main():
         if ONLY and name not in ONLY:
             continue
         noun = NOUN.get(name, name.replace("_", " "))
-        prompt = (f"The {noun} falls straight down onto the wooden tabletop, lands, and settles. "
+        prompt = (f"The {noun} falls from a height and hits the wooden tabletop hard, "
+                  f"visibly bounces back up, bounces again lower, and finally comes to rest. "
                   f"Every other object on the table stays exactly where it is.")
         img = Image.open(OUT / f"I0_{name}.png").convert("RGB")
         for seed in SEEDS:

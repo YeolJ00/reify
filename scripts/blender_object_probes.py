@@ -25,9 +25,13 @@ OUT = SCENE / "probes"
 CITY = REPO / "assets" / "scenes" / "city"
 
 # tighter camera than the hero shot: the object must be big in frame to be trackable
-CAM = {"eye": [0.72, -0.80, 1.12], "target": [-0.02, 0.02, 0.80], "fov_deg": 46,
+CAM = {"eye": [0.85, -0.95, 1.30], "target": [-0.02, 0.02, 0.86], "fov_deg": 46,
        "width": 544, "height": 448}
-DROP_H = 0.16          # how far above its resting place the object is held
+import os as _os
+# ESCALATION (the planner's ladder): the first pass dropped only 16 cm and the generated
+# clips barely rebounded, so restitution was weakly observable. Drop from twice as high;
+# the camera above was re-framed to keep the lifted objects in shot.
+DROP_H = float(_os.environ.get("DROP_H", "0.30"))
 TARGETS = ["baseball", "apple", "brass_pot", "ceramic_vase", "rubber_duck"]
 
 
