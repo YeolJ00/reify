@@ -32,6 +32,10 @@ CD_RANGE = (2.0, 400.0)   # normal damping: low = bouncy, high = dead thud
 # of identification unless the fit itself is credible.
 MAX_FIT_PX = 25.0
 K_CONTACT, SUBSTEPS = 2500.0, 80
+# LOSS=signature (default) fits the motion signature — rebound fraction, settle time —
+# instead of the pixel trajectory. LOSS=pixel keeps the old objective for comparison.
+LOSS = os.environ.get("LOSS", "signature")
+MAX_SIG_DIST = 0.18        # a signature this far off means the sim does not move like the video
 
 
 def object_silhouette(frames, cam, drop_pos, size_m):
@@ -131,6 +135,7 @@ def main():
     from src.render.camera import Camera
     from src.sim.probe_scene import ProbeScene
     from src.data.assets import load_asset
+    from src.motion.signature import describe, drop_signature, signature_distance
 
     cfg = json.loads((OUT / "probes.json").read_text())
     scene_objs = json.loads((REPO / "outputs" / "scene" / "scene.json").read_text())["objects"]
@@ -176,6 +181,8 @@ def main():
             i0 = int(np.argmax(m))              # first tracked frame — the SAME reference
             obs_rel = cen - cen[i0]             # must be used for sim and observation
 
+            obs_sig = drop_signature(cen[:, 1])
+
             def rms(cd, v0):
                 # a mesh cover applies contact through HUNDREDS of spheres at once, so the
                 # per-sphere stiffness must be far lower than for a single-sphere ball or
@@ -188,8 +195,10 @@ def main():
                 if not np.isfinite(P).all():
                     return 1e6
                 uv, _ = cam.project(P[:nf, 0])
-                sim_rel = uv - uv[i0]
-                return float(np.sqrt(((sim_rel[m] - obs_rel[m]) ** 2).mean()))
+                if LOSS == "pixel":
+                    sim_rel = uv - uv[i0]
+                    return float(np.sqrt(((sim_rel[m] - obs_rel[m]) ** 2).mean()))
+                return signature_distance(drop_signature(uv[:, 1]), obs_sig)
 
             scan = np.geomspace(*CD_RANGE, 9)
             errs = []
@@ -199,19 +208,43 @@ def main():
                     for vy in np.linspace(-0.25, 0.25, 3):
                         b = min(b, rms(cd, (vx, vy)))
                 errs.append(b)
-            errs = np.array(errs); i = int(np.argmin(errs))
-            spread = float(errs.max() - errs.min())
+            errs = np.array(errs)
+            ok_sim = errs < 1e5                       # drop failed/unstable rollouts
+            if ok_sim.sum() < 3:
+                results[name] = {"identified": False, "why": "simulation unstable over the range"}
+                print(f"  -> {name}: simulation unstable"); continue
+            i = int(np.argmin(np.where(ok_sim, errs, np.inf)))
+            best_err = float(errs[i])
+            gate = MAX_FIT_PX if LOSS == "pixel" else MAX_SIG_DIST
+            explains = best_err <= gate
+            # A parameter is only identified if values AWAY from the optimum fit clearly
+            # worse. If a wide band of the range fits just as well (a plateau), or the
+            # optimum sits on the edge, we have a bound at best — not a measurement.
+            tol = (NOISE_PX if LOSS == "pixel" else 0.03)
+            near = ok_sim & (errs <= best_err + tol)
+            lo_i = hi_i = i
+            while lo_i - 1 >= 0 and near[lo_i - 1]:
+                lo_i -= 1
+            while hi_i + 1 < len(scan) and near[hi_i + 1]:
+                hi_i += 1
+            frac = float(np.log(scan[hi_i] / scan[lo_i]) / np.log(scan[-1] / scan[0]))
             railed = i in (0, len(scan) - 1)
-            explains = float(errs[i]) <= MAX_FIT_PX
-            ident = explains and spread > NOISE_PX and not railed
+            spread = float(errs[ok_sim].max() - best_err)
+            ident = explains and not railed and frac < 0.5
             why = ("ok" if ident else
-                   ("sim cannot reproduce this motion" if not explains else
-                    ("optimum outside the tested range" if railed else "parameter barely affects the motion")))
-            results[name] = {"identified": bool(ident), "why": why,
+                   ("sim does not move like the video" if not explains else
+                    ("optimum outside the tested range" if railed else
+                     f"any value over {scan[lo_i]:.0f}-{scan[hi_i]:.0f} fits equally")))
+            results[name] = {"identified": bool(ident), "why": why, "loss": LOSS,
+                             "obs_signature": obs_sig,
                              "cd": float(scan[i]), "seed": seed,
-                             "spread_px": spread, "fit_px": float(errs[i]), "railed": bool(railed),
+                             "spread_px": spread, "fit_px": best_err, "railed": bool(railed),
+                             "interval": [float(scan[lo_i]), float(scan[hi_i])], "frac": frac,
                              "scan": scan.tolist(), "errs": errs.tolist()}
-            print(f"  -> {name}: cd={scan[i]:.1f} fit={errs[i]:.1f}px spread={spread:.1f}px "
+            unit = "px" if LOSS == "pixel" else ""
+            print(f"     observed: {describe(obs_sig)}")
+            print(f"  -> {name}: cd={scan[i]:.1f} fit={errs[i]:.3g}{unit} spread={spread:.3g}{unit} "
+                  f"[{scan[lo_i]:.0f}-{scan[hi_i]:.0f}] "
                   f"{'IDENTIFIED' if ident else 'NOT identified: ' + why}")
 
     (OUT / "recovered.json").write_text(json.dumps(results, indent=2))

@@ -1152,3 +1152,34 @@ Bugs found and fixed along the way (each was silently producing wrong answers):
 
 Restitution is written to USD as a real coefficient by running the recovered sim and
 measuring rebound/impact speed, rather than inventing a cd->e mapping.
+
+## M28 — motion-signature loss (2026-07-28)
+
+`src/motion/signature.py`. Replaces the pixel-trajectory objective with a small set of
+scale-free features of the motion: **rebound_fraction** (how high it comes back relative
+to how far it fell — essentially restitution), **settle_frac** (decay envelope), and
+**fall_frac** (when the landing happens). These are invariant to the things we neither
+control nor care about — a constant offset between the tracker's centroid and the sim's
+body origin, small timing shifts, lateral drift, modest scale error — which is precisely
+the ~30 px of pixel disagreement that was failing four of five objects.
+
+**A/B on the same clips and tracks — objects whose motion the simulator can explain at all:**
+    pixel loss     1/5
+    signature loss 5/5
+That is the barrier it was meant to remove, and it removed it.
+
+What remains is a different and more honest limit: **the generated drops barely bounce**
+(observed rebound 0-17%, mostly ~3%), so restitution is weakly observable no matter the
+loss. Identification is now gated on the interval of damping values that fit within
+tolerance — a plateau ("any value over 4-106 fits equally", the apple) is reported as a
+bound, not a measurement. Final: **2/7 objects carry a measured value** —
+brass_pot e=0.095 (interval [8-15], confidence 0.88) and baseball e=0.010 ([55-206], 0.75).
+
+Note worth keeping: **the recovered baseball is dead (e=0.01)**, which is wrong for a real
+baseball and right for the video we were given — Cosmos generated a baseball that does not
+bounce. The pipeline faithfully recovered the physics it was shown. That is the correct
+behaviour and it locates the error where it belongs: in the instrument, not the estimator.
+
+Gating fixes made at the same time: failed/unstable rollouts (1e6 sentinels) no longer
+pollute the spread statistic, and identification requires the near-optimal interval to be
+a small fraction of the scanned range rather than merely "spread > noise".

@@ -83,10 +83,16 @@ def main():
                 e = measure_restitution(name, so, probes["drop_h"], gz, r["cd"])
                 if e is not None:
                     v["restitution"] = e
-                    prov["restitution"] = f"recovered:drop:seed{r['seed']}"
-                    conf["restitution"] = float(np.clip(1.0 - r["fit_px"] / 25.0, 0.05, 0.95))
-                    print(f"  {name:13s} restitution {e:.3f}  (from cd={r['cd']:.1f}, "
-                          f"fit {r['fit_px']:.1f}px)")
+                    prov["restitution"] = f"recovered:drop:seed{r['seed']}:{r.get('loss','pixel')}-loss"
+                    # confidence from how tightly the value is pinned: a narrow interval
+                    # of damping values that fit the signature means a real measurement
+                    conf["restitution"] = float(np.clip(1.0 - r.get("frac", 0.5), 0.05, 0.95))
+                    iv = r.get("interval", [r["cd"], r["cd"]])
+                    print(f"  {name:13s} restitution {e:.3f}  (damping {r['cd']:.1f}, "
+                          f"pinned to [{iv[0]:.0f}-{iv[1]:.0f}], confidence {conf['restitution']:.2f})")
+                else:
+                    print(f"  {name:13s} identified but the rebound could not be measured "
+                          f"-> class prior kept")
             elif r:
                 print(f"  {name:13s} not recovered: {r.get('why','-')}  -> class prior kept")
             else:
