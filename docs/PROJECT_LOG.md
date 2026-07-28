@@ -1085,3 +1085,35 @@ squishy" -> soft_stiffness -> hard_drop probe + prompt + setup, justified by the
 table; `screen_take()` with the physical-validity gates measured on generated video
 (tracking coverage, path curvature >10% = non-physical, contact causality, fit residual);
 and an escalation ladder for when the signal is too weak.
+
+## M26 — scene milestone (part 1): assets, scene, SimReady write-back, video-vs-sim (2026-07-28)
+
+Pivot to the pitch's actual deliverable: a whole authored SCENE handed back with physics.
+
+**Assets** (`scripts/fetch_props.py`) — 9 CC0 Poly Haven props chosen so they look like
+ordinary dressing but must move very differently: rubber_duck_toy (the pitch's own duck),
+throw_pillows_01, baseball_01, food_apple_01, ceramic_vase_01, brass_pot_01,
+cardboard_box_01, book_encyclopedia_set_01, wooden_bowl_01. All load in trimesh at real
+scale. (coffee_cart 404s.) Poly Haven's API needs a User-Agent or it 403s.
+
+**Scene** (`scripts/blender_scene.py`) — a finished-looking tabletop: duck, brass pot,
+ceramic vase, wooden bowl, baseball, apple on the wooden table under the city HDRI.
+The pot/vase pair is deliberate: same vessel silhouette, one dense metal and one thin
+ceramic — they cannot share a default. Renders `outputs/scene/hero.png`, writes
+`scene.json` (camera, table height, per-object placement + bbox), and exports
+`scene_geom.usdc` via Blender's USD exporter (Z-up, metres, prims at /root/<name>).
+
+**SimReady write-back** (`src/simready/usd_physics.py`) — installed `usd-core` (USD 26.8;
+schema names verified against the installed lib, not memory). Per movable object applies
+UsdPhysics **RigidBodyAPI + CollisionAPI + MassAPI(density)** and binds a
+UsdPhysics **MaterialAPI** carrying dynamicFriction / staticFriction / restitution;
+static prims (table, floor) get CollisionAPI only; a UsdPhysics.Scene carries gravity.
+Round-trip verified by reading the attributes back off the exported stage.
+Every value also carries **provenance + confidence** custom attributes
+(`simready:provenance:<param>` = "recovered:<probe>" or "default:class-prior"), and
+`coverage_report()` prints which of an object's numbers are real. NOTE: the values
+exercised so far are PLACEHOLDERS — per-object recovery for these props is the next step.
+
+**Video vs simulation** (`scripts/video_vs_sim.py`) — side-by-side of the Cosmos clip and
+our simulator running the material fitted from it, same camera and backdrop, for the drop
+and collide probes. (Frames rendered explicitly; FuncAnimation+PillowWriter sheared them.)
