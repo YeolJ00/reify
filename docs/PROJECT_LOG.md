@@ -1046,3 +1046,42 @@ table is *also* reddish (r−g, r−b both large) so a naive red mask swallowed 
 into the tabletop; separation is by brightness/blueness, plus the street HDRI contains a
 red car so detection is limited to the table region. Camera validated on generated
 video: projected start [260,169] vs tracked [261,167].
+
+## M25 — joint recovery + held-out prediction on generated video; the lab planner (2026-07-28)
+
+### Joint recovery (the "system of equations")
+`scripts/cosmos_joint_heldout.py`. Every probe video of the same objects shares one
+MATERIAL but has its own unknown launch velocity, so we solve one joint problem:
+shared θ=(cd, mu, mass ratio) + per-probe nuisance v0_p, minimising the summed projected
+residual over probes. 7 unknowns over {drop-s0, collide-s2} (push excluded: non-physical).
+CEM converged 49.1 → ~15 px. **Jointly recovered: cd=7.26, mu=0.192, mass ratio=1.162**
+(per-probe residuals 17.0 / 14.7 px).
+
+### Held-out prediction on generated video — INCONCLUSIVE, and we can say exactly why
+Freeze the material, fit ONLY the held-out clip's launch velocity (an initial condition
+cannot transfer, a material must), compare against default material.
+- **Attempt 1** (`heldout` layout, seed2): 13.2 px both ways, 1.00x. Diagnosis: the
+  clip's knock is a glancing 18 px tap AND the fitted trajectory never even brings the
+  balls into contact — the two candidate materials predicted the same thing to within
+  2.9 px (target ball: 0.0 px). A vacuous test, not a failed recovery.
+- **Attempt 2** (`collide` seed4 — strong causal knock, target moves 255 px; contact does
+  happen in the sim, and the two materials' predictions differ by 9.8 px, so the test is
+  live): transferred **26.3 px** vs default **27.1 px** — only 1.03x.
+- **The control that settles it**: fitting material *directly on the held-out clip* gives
+  **26.5 px** — the best the model can possibly do. So the transferred material is already
+  optimal for this clip (26.3 ≤ 26.5); the ~26 px floor is the VIDEO's own departure from
+  physics, not parameter error, and it swamps the ~10 px of material signal.
+
+**Conclusion, quantified**: held-out transfer is cleanly demonstrated in simulation
+(1.7 px vs 24.5 px = 15x, M23) but NOT yet on Cosmos video. The bar this sets is concrete:
+generated motion must be physically consistent to better than ~10 px (the material-induced
+prediction spread) before transfer can be demonstrated on it. Cosmos collisions sit at ~26 px.
+
+### The lab planner (`src/lab/planner.py`)
+Turns a requested attribute into the experiment that reveals it — "I want this duck to be
+squishy" -> soft_stiffness -> hard_drop probe + prompt + setup, justified by the measured
+6 cm-drop (0.0% error) vs 2.5 cm-drop (56% error) result. Contains: attribute aliases
+(bouncy/slippery/heavy/squishy/floppy) -> parameter -> probe; the measured effect-size
+table; `screen_take()` with the physical-validity gates measured on generated video
+(tracking coverage, path curvature >10% = non-physical, contact causality, fit residual);
+and an escalation ladder for when the signal is too weak.
