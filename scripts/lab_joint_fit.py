@@ -35,16 +35,34 @@ SUBSTEPS, K_CONTACT = 60, 2500.0
 EXPS = ["drop", "slide", "collide"]
 
 
-def _obj_geom(so, load_asset):
-    """(rest centre in world, mesh key, scale) for a placed scene object."""
+def _obj_geom(so, load_asset, decimate=None, ground_z=None, pitch=0.020):
+    """(body centre in world, mesh key, scale) for a placed scene object.
+
+    The centre must be derived from the SAME sphere cover the simulator builds, not from
+    the mesh bounds: the cover is a voxelised shell of finite-radius spheres centred on
+    the mesh's vertex mean, so the body has to sit one sphere radius above where the
+    geometry alone suggests, and the voxel grid shifts the lowest point again. Deriving it
+    any other way left objects buried in the table — they popped up 6 cm on frame 1 and
+    every signature computed downstream was measuring that artefact.
+    """
+    from src.sim.diff_collide_mesh import sphere_cover
     cat = so["asset"].split("/")[0]; asset = Path(so["asset"]).name
+    scale = so["scale"]
     tm = load_asset(cat, asset)
-    c = np.array(so["pos"], float) + np.asarray(tm.vertices).mean(0) * so["scale"]
-    return c, f"{cat}/{asset}", so["scale"]
+    if decimate is not None:
+        tm = decimate(tm, 400)
+    tm = tm.copy(); tm.apply_scale(scale)
+    centers, r = sphere_cover(tm, pitch * scale)
+    vmean = np.asarray(tm.vertices).mean(0)          # already scaled
+    pos = np.array(so["pos"], float)
+    c = np.array([pos[0] + vmean[0], pos[1] + vmean[1], 0.0])
+    # rest height: lowest sphere of the cover just touches the table
+    c[2] = (ground_z if ground_z is not None else 0.0) + r - float(centers[:, 2].min())
+    return c, f"{cat}/{asset}", scale
 
 
 def write_seeds():
-    from src.data.assets import load_asset
+    from src.data.assets import decimate, load_asset
     from src.render.camera import Camera
     cfg = json.loads((LAB / "lab.json").read_text())
     cam = Camera(cfg["camera"])
@@ -54,7 +72,8 @@ def write_seeds():
         for role, key in (("mover", e["mover"]), ("target", e["target"])):
             so = dict(cfg["assets"][key])
             so["pos"] = e[f"{role}_pos"]
-            c, _mk, _sc = _obj_geom(so, load_asset)
+            c, _mk, _sc = _obj_geom(so, load_asset, decimate, cfg['ground_z'])
+            c[2] += float(e.get('mover_lift', 0.0)) if role == 'mover' else 0.0
             uv, dep = cam.project(np.array([c]))
             size_m = min(so["size_cm"][0], so["size_cm"][1]) / 100.0
             s[role] = {"u": float(uv[0][0]), "v": float(uv[0][1]),
@@ -101,7 +120,7 @@ def main():
         return track()
 
     import warp as wp
-    from src.data.assets import load_asset
+    from src.data.assets import decimate, load_asset
     from src.motion.signature import (collide_distance, collide_signature, drop_signature,
                                       signature_distance, slide_distance, slide_signature)
     from src.render.camera import Camera
@@ -143,8 +162,9 @@ def main():
         e = cfg["experiments"][ename]
         m_so = dict(mv); m_so["pos"] = e["mover_pos"]
         t_so = dict(tg); t_so["pos"] = e["target_pos"]
-        mc, mk, msc = _obj_geom(m_so, load_asset)
-        tc, tk, tsc = _obj_geom(t_so, load_asset)
+        mc, mk, msc = _obj_geom(m_so, load_asset, decimate, GZ)
+        mc[2] += float(e.get('mover_lift', 0.0))     # the drop's lift
+        tc, tk, tsc = _obj_geom(t_so, load_asset, decimate, GZ)
         nf = obs[ename]["n"]
         if ename == "collide":
             sc = ProbeScene([mk, tk], [list(mc), list(tc)], [[v0[0], v0[1], 0.0], [0, 0, 0]],
@@ -183,6 +203,57 @@ def main():
                 d = collide_distance(collide_signature(uv, uvt, sp), obs[ename]["sig"])
             tot += min(d, 1.0); n += 1
         return tot / max(n, 1), th
+
+    # ---------------- SEQUENTIAL mode (dependency-graph order) ----------------
+    # The parameters are not symmetric: a drop needs nothing else to reveal restitution,
+    # a slide needs nothing else to reveal friction, but a collision involves BOTH of
+    # those before any mass information is left over. So there is a natural order
+    #     restitution  <- drop
+    #     friction     <- slide
+    #     mass ratio   <- collide, holding the first two fixed
+    # Solving in that order is easier to debug and degrades gracefully: if the collision
+    # fails you still keep the first two, instead of one opaque fit that half-worked.
+    if os.environ.get("SEQ"):
+        fixed = {"cd": 20.0, "mu": 0.4, "ratio": 1.0}
+        nuis = {"drop": (0.0, 0.0), "slide": (0.6, 0.0), "collide": (0.9, 0.0)}
+        stages = [("cd", "drop", np.geomspace(0.5, 400.0, 11)),
+                  ("mu", "slide", np.linspace(0.05, 1.2, 11)),
+                  ("ratio", "collide", np.geomspace(0.15, 8.0, 11))]
+        print("\nSEQUENTIAL fit, in dependency order")
+        for key, ename, grid in stages:
+            if obs[ename]["sig"] is None:
+                print(f"  {key:6s} <- {ename:8s}: experiment unusable, left at prior {fixed[key]}")
+                continue
+            errs = []
+            for g in grid:
+                th = dict(fixed); th[key] = float(g)
+                b = 1e9
+                for vx in ([0.0] if ename == "drop" else np.linspace(0.25, 1.6, 5)):
+                    P = run(ename, th, (vx, 0.0))
+                    if P is None:
+                        continue
+                    uv, _ = cam.project(P[:, 0]); sp = obs[ename]["size_px"]
+                    if ename == "drop":
+                        dd = signature_distance(drop_signature(uv[:, 1], uv[:, 0]), obs[ename]["sig"])
+                    elif ename == "slide":
+                        dd = slide_distance(slide_signature(uv, sp), obs[ename]["sig"])
+                    else:
+                        uvt, _ = cam.project(P[:, 1])
+                        dd = collide_distance(collide_signature(uv, uvt, sp), obs[ename]["sig"])
+                    b = min(b, dd)
+                errs.append(b)
+            errs = np.array(errs); i = int(np.argmin(errs))
+            span = float(errs.max() - errs.min())
+            near = errs <= errs[i] + 0.03
+            frac = float(near.sum() / len(grid))
+            det = span > 0.02 and frac < 0.5 and i not in (0, len(grid) - 1)
+            fixed[key] = float(grid[i])
+            print(f"  {key:6s} <- {ename:8s}: {grid[i]:8.3f}  fit {errs[i]:.4f}  "
+                  f"{'DETERMINED' if det else 'not constrained'}  "
+                  f"(cost range {span:.3f}, {100*frac:.0f}% of the range fits)")
+        print(f"\n  sequential result: cd={fixed['cd']:.2f} mu={fixed['mu']:.3f} ratio={fixed['ratio']:.3f}")
+        np.savez(LAB / "seq_fit.npz", theta=json.dumps(fixed))
+        return 0
 
     rng = np.random.default_rng(0)
     m = np.array([np.log(20.0), 0.4, 0.0, 0.6, 0.0, 0.9, 0.0])

@@ -27,13 +27,19 @@ CITY = REPO / "assets" / "scenes" / "city"
 CAM = {"eye": [0.72, -0.80, 1.12], "target": [-0.02, 0.02, 0.80], "fov_deg": 46,
        "width": 544, "height": 448}
 GROUND_Z = 0.706
-MOVER, TARGET = "baseball", "apple"
+# The red apple is the MOVER and the white baseball the TARGET, not the other way round:
+# in the first attempt the baseball tracked at 4-53% (white on a bright table, CoTracker
+# lost it and followed things off-frame) while the apple tracked at 97-99%.
+MOVER, TARGET = "apple", "baseball"
 
 # experiment -> where the mover starts, where the target sits (None = leave it home)
 LAYOUTS = {
     "drop":    {"mover": (-0.30, -0.02, 0.20), "target": None},   # z is a LIFT above rest
     "slide":   {"mover": (-0.42, -0.02, 0.0), "target": None},    # long clear runway
-    "collide": {"mover": (-0.42, -0.02, 0.0), "target": (-0.02, -0.02, 0.0)},
+    # Close the gap. The first attempt put 31 cm of clear table between them and the
+    # mover never arrived in the 2 s clip — the target did not move in ANY take. The
+    # two-ball scene that did collide had them ~11 cm apart.
+    "collide": {"mover": (-0.30, -0.02, 0.0), "target": (-0.10, -0.02, 0.0)},
 }
 
 

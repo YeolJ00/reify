@@ -1293,3 +1293,47 @@ around the optimum and see whether the joint cost notices.
 This is the pitch's "system of equations" working end to end on authored scene objects,
 including the part that matters most: it reports which parameters the experiment set
 actually determined.
+
+## M32 — making the collision work; joint vs sequential (2026-07-28)
+
+**Why the collision failed — it was not the joint fit.** The rejecting gate runs on the
+observed tracks alone, before any simulation. Two real causes:
+1. *No collision was generated.* The target's tracked position across all takes was
+   269->272, 269->269, 269->269 px — it never moved. The objects were staged 31 cm apart
+   and the mover never arrived within the 2 s clip. (The two-ball scene that did collide
+   had them ~11 cm apart.) Restaged at 11 cm.
+2. *The tracker lost the mover.* The white baseball tracked at 4/53/11%; in one take
+   CoTracker followed it to x=1027 in a 544-wide frame. The red apple tracked at 97-99%
+   in the same clips, so the roles were swapped: apple = mover, baseball = target.
+   My earlier claim that the clip was unphysical was overstated — I was measuring a
+   tracker that had wandered off, and should have checked track quality first.
+
+**A geometry bug was corrupting every signature.** The body centre was derived from the
+mesh bounds, but ProbeScene centres its sphere cover on the mesh's vertex mean and the
+cover is a voxelised shell of finite-radius spheres. Objects therefore started buried and
+popped up ~6 cm on frame 1. Now the rest height is computed from the actual cover
+(`ground_z + r - min(centre_z)`); vertical drift for slide/collide is 0.0 cm and the drop
+falls exactly the 20 cm staged.
+
+**Both estimators now run over all three experiments, none rejected:**
+
+                    sequential          joint
+    restitution     53.8  not constr.   21.6  not constrained
+    friction         0.740 DETERMINED    0.171 DETERMINED
+    mass ratio       1.630 DETERMINED    0.670 DETERMINED
+
+They AGREE on *which* parameters the experiment set determines (friction and mass yes,
+restitution no) — mutual validation of the identifiability structure. They DISAGREE on the
+values by 2-4x, which is the honest uncertainty: larger than either fit's own sensitivity
+test suggests.
+
+**Joint beats sequential where it counts.** True density ratio baseball/apple is ~0.89
+(baseball ~0.74 g/cm3, apple ~0.83). Joint recovers 0.67, sequential 1.63. The likely
+reason is exactly the argument for joint fitting: sequential froze a bad restitution (from
+a drop take whose 86% rebound is implausible) and propagated it into the collision stage,
+while the joint fit could trade it off. Sequential remains the better debugging tool;
+joint is the better estimator.
+
+Open: the drop signature needs a plausibility gate of its own (an 86% rebound for an apple
+should be rejected the way an accelerating collision now is), which is likely why
+restitution is unconstrained in both fits.

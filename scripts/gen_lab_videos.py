@@ -29,14 +29,13 @@ OUT = REPO / "outputs" / "scene" / "lab"
 SEEDS = [int(x) for x in os.environ.get("SEEDS", "0,1,2").split(",")]
 
 PROMPTS = {
-    "drop": "The white baseball falls onto the wooden tabletop, hits it and visibly bounces "
-            "back up, bounces again lower, then comes to rest. Nothing else moves.",
-    "slide": "The white baseball is already rolling and travels across the wooden tabletop "
-             "toward the red apple, gradually slowing down from friction, and stops on its "
-             "own well before reaching it. Nothing else moves.",
-    "collide": "The white baseball rolls across the wooden tabletop into the red apple, "
-               "strikes it, and knocks the apple rolling away. The baseball slows after "
-               "the impact. Nothing else moves.",
+    "drop": "The red apple falls onto the wooden tabletop, hits it and visibly bounces back "
+            "up, bounces again lower, then comes to rest. Nothing else moves.",
+    "slide": "The red apple is already rolling and travels across the wooden tabletop, "
+             "gradually slowing down from friction, and stops on its own. Nothing else moves.",
+    "collide": "The red apple rolls a short distance across the wooden tabletop into the "
+               "white baseball right next to it, strikes it, and the baseball is knocked "
+               "away and rolls off. The apple slows down after the impact.",
 }
 
 
