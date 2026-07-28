@@ -98,3 +98,98 @@ def describe(sig):
     return (f"rebound {sig['rebound_fraction']*100:.0f}%, "
             f"slides {sig.get('slide_frac',0)*100:.0f}% of the drop sideways, "
             f"settles over {sig['settle_frac']*100:.0f}%, lands {sig['fall_frac']*100:.0f}% in")
+
+
+# ---------------------------------------------------------------------------
+# Signatures for the other two experiments. Each is expressed in units of the
+# object's own apparent SIZE, so like the drop signature it is scale-free and
+# does not care where the object was or how big the image is.
+# ---------------------------------------------------------------------------
+
+def _path_len(xy):
+    d = np.diff(xy, axis=0)
+    return np.concatenate([[0.0], np.cumsum(np.hypot(d[:, 0], d[:, 1]))])
+
+
+def slide_signature(xy, size_px, moving_eps=0.03):
+    """How a sliding/rolling object gives up its speed -> friction.
+
+    total_travel  how far it goes, in object-widths
+    decel_ratio   distance covered in the second half vs the first half
+                  (1.0 = never slowed, 0.0 = stopped dead early)
+    stop_frac     when it comes to rest, as a fraction of the clip
+    """
+    xy = np.asarray(xy, float)
+    m = ~np.isnan(xy[:, 0])
+    if m.sum() < 6 or size_px <= 1:
+        return None
+    P = xy[m]
+    d = _path_len(P)
+    total = float(d[-1] / size_px)
+    if total < 0.15:
+        return None                              # never really moved
+    half = len(d) // 2
+    first = d[half] - d[0]
+    second = d[-1] - d[half]
+    decel = float(np.clip(second / (first + 1e-6), 0.0, 2.0))
+    step = np.diff(d) / max(size_px, 1e-6)
+    mv = np.where(step > moving_eps)[0]
+    stop_frac = float((mv[-1] + 1) / len(step)) if len(mv) else 0.0
+    return {"total_travel": total, "decel_ratio": decel, "stop_frac": stop_frac}
+
+
+SLIDE_WEIGHTS = {"total_travel": 0.35, "decel_ratio": 1.0, "stop_frac": 0.6}
+
+
+def slide_distance(a, b):
+    if a is None or b is None:
+        return 1e6
+    # total_travel is compared in log space: it spans a wide range and we care about
+    # relative error, not absolute object-widths
+    da = np.log1p(a["total_travel"]) - np.log1p(b["total_travel"])
+    rest = sum(w * (a[k] - b[k]) ** 2 for k, w in SLIDE_WEIGHTS.items() if k != "total_travel")
+    return float(np.sqrt((SLIDE_WEIGHTS["total_travel"] * da ** 2 + rest)
+                         / sum(SLIDE_WEIGHTS.values())))
+
+
+def collide_signature(mover_xy, target_xy, size_px):
+    """Momentum transfer -> the mass ratio.
+
+    transfer      how far the target is knocked, per unit of the mover's approach
+    mover_kept    how much of its travel the mover keeps after the hit
+    impact_frac   when the hit happens within the clip
+    """
+    mv = np.asarray(mover_xy, float); tg = np.asarray(target_xy, float)
+    mm = ~np.isnan(mv[:, 0]); tm = ~np.isnan(tg[:, 0])
+    if mm.sum() < 6 or tm.sum() < 6 or size_px <= 1:
+        return None
+    t0 = tg[tm][0]
+    moved = np.where(tm & (np.hypot(*(np.nan_to_num(tg - t0, nan=0.0).T)) > 0.25 * size_px))[0]
+    if not len(moved):
+        return None                              # nothing was struck
+    hit = int(moved[0])
+    dm = _path_len(np.nan_to_num(mv, nan=0.0)) / size_px
+    dt = _path_len(np.nan_to_num(tg, nan=0.0)) / size_px
+    approach = float(dm[hit] - dm[0])
+    if approach < 0.2:
+        return None                              # the mover never actually came in
+    transfer = float((dt[-1] - dt[hit]) / approach)
+    kept = float((dm[-1] - dm[hit]) / approach)
+    # PHYSICAL PLAUSIBILITY. A struck object cannot leave the impact with more motion
+    # than it arrived with, and a "collision" that barely moves the target is not the
+    # experiment we asked for. Either way there is no mass information in the clip.
+    if kept > 1.15 or transfer < 0.05:
+        return None
+    return {"transfer": float(np.clip(transfer, 0.0, 4.0)),
+            "mover_kept": float(np.clip(kept, 0.0, 1.15)),
+            "impact_frac": float(hit / len(dm))}
+
+
+COLLIDE_WEIGHTS = {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.4}
+
+
+def collide_distance(a, b):
+    if a is None or b is None:
+        return 1e6
+    return float(np.sqrt(sum(w * (a[k] - b[k]) ** 2 for k, w in COLLIDE_WEIGHTS.items())
+                         / sum(COLLIDE_WEIGHTS.values())))

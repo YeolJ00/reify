@@ -1258,3 +1258,38 @@ is just not reproducible on demand. Paths forward are more seeds with consensus 
 but works — the baseball did converge), a more deterministic conditioning, or a video
 model whose physics is stable across seeds. This is a measurable acceptance criterion to
 hold future models to.
+
+## M31 — joint recovery across DIFFERENT experiments (2026-07-28)
+
+The right reading of "optimise jointly": not pooling repeats of one probe, but solving
+several *different* experiments for one parameter set, since each reveals a different
+parameter and together they constrain each other.
+
+Staged in the authored scene (`blender_scene_lab.py`), baseball as mover, apple as target,
+other props parked clear of the runway:
+    drop -> restitution, slide -> friction, collide -> mass ratio
+
+Two prerequisites had to be built first:
+- **the friction channel.** The motion signature was vertical-only (rebound, settle), so
+  friction was invisible to the objective and no amount of joint fitting could have found
+  it. Added `slide_frac`, plus `slide_signature` (travel in object-widths, deceleration
+  ratio, stop time) and `collide_signature` (momentum transfer, mover's retained travel).
+  Signal is real: brass pot slides 0-3% of its drop, baseball up to 300%.
+- **a collision plausibility gate.** A struck object cannot leave an impact with more
+  motion than it arrived with. All three collide takes failed it — the best-tracked one
+  had the ball travelling 1.77x further AFTER the hit while moving the apple by 0.08x.
+
+**Result** (`lab_joint_fit.py`, CEM over 3 shared parameters + 2 per-clip launch velocities):
+    joint cost 0.232, experiments used: drop + slide, rejected: collide
+    restitution damping = 135.7   DETERMINED       (cost moves 0.381 when perturbed)
+    friction mu         =   0.548 DETERMINED       (cost moves 0.033 — weakly)
+    mass ratio          =   0.150 NOT CONSTRAINED  (cost moves 0.000)
+
+The mass ratio result is the point: with the collision rejected there is nothing left in
+the data that can see mass, and the fit says so instead of returning the number it drifted
+to. A post-fit sensitivity test decides this rather than assertion — perturb each parameter
+around the optimum and see whether the joint cost notices.
+
+This is the pitch's "system of equations" working end to end on authored scene objects,
+including the part that matters most: it reports which parameters the experiment set
+actually determined.
