@@ -93,7 +93,7 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
 class ProbeScene:
     def __init__(self, names, pos0, vel0, ang0=None, densities=(600.0, 600.0), ground_z=0.706,
                  pitch=0.020, dt=2.0e-4, n_steps=1400, k=4000.0, cd=8.0, mu=0.5,
-                 gravity=(0.0, 0.0, -9.81), ball_radius=None):
+                 gravity=(0.0, 0.0, -9.81), ball_radius=None, mesh_scale=None):
         # ball_radius: model each body as a single solid sphere instead of a scanned mesh
         # (used for the generated-video probes, where the objects really are balls)
         self.N = len(names); self.dt, self.n_steps = dt, n_steps
@@ -110,10 +110,16 @@ class ProbeScene:
         else:
             for bi, name in enumerate(names):
                 tm = decimate(load_asset("rigid", name), 400)
-                centers, r = sphere_cover(tm, pitch)
+                if mesh_scale is not None:
+                    sfac = float(mesh_scale[bi] if hasattr(mesh_scale, "__len__") else mesh_scale)
+                    tm = tm.copy(); tm.apply_scale(sfac)
+                    pitch_b = pitch * sfac      # keep the cover resolution proportional
+                else:
+                    pitch_b = pitch
+                centers, r = sphere_cover(tm, pitch_b)
                 self.radius = float(r)
                 cl.append(centers); body.append(np.full(len(centers), bi, np.int32))
-                vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch ** 3)
+                vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch_b ** 3)
         self.center_local = wp.array(np.concatenate(cl), dtype=wp.vec3)
         self.body = wp.array(np.concatenate(body), dtype=int)
         self.nS = int(self.body.shape[0])

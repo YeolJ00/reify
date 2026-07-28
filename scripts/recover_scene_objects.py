@@ -27,6 +27,10 @@ sys.path.insert(0, str(REPO))
 OUT = REPO / "outputs" / "scene" / "probes"
 NOISE_PX = 2.5
 CD_RANGE = (2.0, 90.0)          # normal damping: low = bouncy, high = dead
+# If the simulator cannot reproduce the generated motion AT ALL, the parameter that
+# best fits garbage is still garbage. A large spread across the scan is not evidence
+# of identification unless the fit itself is credible.
+MAX_FIT_PX = 25.0
 
 
 def object_silhouette(frames, cam, drop_pos, size_m):
@@ -40,22 +44,49 @@ def object_silhouette(frames, cam, drop_pos, size_m):
     return ((xx - u) ** 2 + (yy - v) ** 2) < r ** 2, (u, v), r
 
 
+def write_seeds():
+    """Stage 0 (warp env) — where each object appears in frame 0, for the tracker.
+    Kept separate because src.render.camera imports warp, which the video env lacks."""
+    from src.render.camera import Camera
+    cfg = json.loads((OUT / "probes.json").read_text())
+    scene_objs = json.loads((REPO / "outputs" / "scene" / "scene.json").read_text())["objects"]
+    cam = Camera(cfg["camera"])
+    seeds = {}
+    for name, p in cfg["probes"].items():
+        so = scene_objs[name]
+        rc = 0.5 * (np.array(so["bbox_min"]) + np.array(so["bbox_max"]))
+        drop_c = list(rc + np.array([0, 0, p["drop_h"]]))
+        uv, dep = cam.project(np.array([drop_c]))
+        # radius from the SMALLEST horizontal extent, not the largest dimension: a tall
+        # thin object (the vase is 12.6 cm wide and 24.8 cm tall) otherwise gets a seed
+        # circle full of background wall, and the tracker follows the wall instead.
+        size_m = min(p["size_cm"][0], p["size_cm"][1]) / 100.0
+        seeds[name] = {"u": float(uv[0][0]), "v": float(uv[0][1]),
+                       "r": float(0.40 * cam.fx * size_m / max(float(dep[0]), 1e-6))}
+        print(f"  seed {name:13s} at ({seeds[name]['u']:.0f},{seeds[name]['v']:.0f}) r={seeds[name]['r']:.0f}px")
+    (OUT / "seeds.json").write_text(json.dumps(seeds, indent=2))
+    print("wrote", OUT / "seeds.json")
+    return 0
+
+
 def track_objects():
     """Stage 1 — CoTracker on each probe video (run in the `video` env)."""
     import glob
-    sys.path.insert(0, str(REPO))
-    from src.render.camera import Camera
     from src.track.cotracker import seed_in_mask, track_points
     cfg = json.loads((OUT / "probes.json").read_text())
-    cam = Camera(cfg["camera"])
+    seeds = json.loads((OUT / "seeds.json").read_text())
     for name, p in cfg["probes"].items():
+        sd = seeds[name]
         for f in sorted(glob.glob(str(OUT / f"vid_{name}_seed*.npz"))):
             seed = Path(f).stem.split("seed")[1]
             dst = OUT / f"trk_{name}_seed{seed}.npz"
             if dst.exists():
                 continue
             fr = np.load(f)["frames"]
-            mask, (u, v), r = object_silhouette(fr, cam, p["drop_pos"], max(p["size_cm"]) / 100.0)
+            H, W, _ = fr[0].shape
+            yy, xx = np.mgrid[0:H, 0:W]
+            u, v, r = sd["u"], sd["v"], sd["r"]
+            mask = ((xx - u) ** 2 + (yy - v) ** 2) < r ** 2
             q = seed_in_mask(mask, n=40, seed=0)
             tracks, vis = track_points(fr, q, device="cuda")
             cen = np.array([np.median(tracks[t, vis[t]] if vis[t].mean() > 0.3 else tracks[t], axis=0)
@@ -86,12 +117,15 @@ def screen(cen, cam, drop_pos, rest_pos):
 
 
 def main():
+    if os.environ.get("SEED_ONLY"):
+        return write_seeds()
     if os.environ.get("TRACK_ONLY"):
         return track_objects()
 
     import warp as wp
     from src.render.camera import Camera
     from src.sim.probe_scene import ProbeScene
+    from src.data.assets import load_asset
 
     cfg = json.loads((OUT / "probes.json").read_text())
     scene_objs = json.loads((REPO / "outputs" / "scene" / "scene.json").read_text())["objects"]
@@ -118,28 +152,32 @@ def main():
                 results[name] = {"identified": False, "reason": "no usable take"}
                 continue
             cen, fell, seed = best
-            # Each prop is modelled as an EQUIVALENT SPHERE for the drop. Two things must
-            # line up or the fall distance is wrong: the sphere's centre must be the
-            # object's bbox centre (the tracker follows the visual centroid, not the
-            # asset origin), and the effective ground must be set so the sphere comes to
-            # rest exactly where the real object rests.
+            # Use the object's REAL geometry (sphere-covered, scaled as placed in the
+            # scene) rather than an equivalent sphere: a vase and a duck do not land like
+            # a ball. The body origin is the mesh's vertex mean, so we fit RELATIVE motion
+            # (displacement from frame 0) — that cancels any constant offset between the
+            # sim's origin and the visual centroid the tracker follows.
             so = scene_objs[name]
-            lo = np.array(so["bbox_min"]); hi = np.array(so["bbox_max"])
-            rest_c = 0.5 * (lo + hi)
-            R = 0.25 * ((hi[0] - lo[0]) + (hi[1] - lo[1]))            # mean horizontal radius
-            gz_eff = float(rest_c[2] - R)                              # sphere rests at rest_c
+            asset_name = Path(so["asset"]).name
+            tm = load_asset("rigid" if "rigid" in so["asset"] else "soft", asset_name)
+            vmean = np.asarray(tm.vertices).mean(0) * so["scale"]
+            rest_c = np.array(so["pos"], float) + vmean
             drop_c = [float(rest_c[0]), float(rest_c[1]), float(rest_c[2] + p["drop_h"])]
             nf = len(cen)
+            m = ~np.isnan(cen[:, 0])
+            obs_rel = cen - cen[m][0]
 
             def rms(cd, v0):
-                sc = ProbeScene(["o"], [drop_c], [[v0[0], v0[1], 0.0]],
-                                densities=(600.0,), ground_z=gz_eff, dt=1.0 / (24 * 40),
-                                n_steps=nf * 40, k=40000.0, cd=float(cd), mu=0.4, ball_radius=R)
+                sc = ProbeScene([asset_name], [drop_c], [[v0[0], v0[1], 0.0]],
+                                densities=(600.0,), ground_z=GZ, dt=1.0 / (24 * 40),
+                                n_steps=nf * 40, k=40000.0, cd=float(cd), mu=0.4,
+                                mesh_scale=[so["scale"]], pitch=0.020)
                 sc.rollout(); P = sc.positions(40)
                 if not np.isfinite(P).all():
                     return 1e6
-                uv, _ = cam.project(P[:nf, 0]); m = ~np.isnan(cen[:, 0])
-                return float(np.sqrt(((uv[m] - cen[m]) ** 2).mean()))
+                uv, _ = cam.project(P[:nf, 0])
+                sim_rel = uv - uv[0]
+                return float(np.sqrt(((sim_rel[m] - obs_rel[m]) ** 2).mean()))
 
             scan = np.geomspace(*CD_RANGE, 9)
             errs = []
@@ -152,13 +190,17 @@ def main():
             errs = np.array(errs); i = int(np.argmin(errs))
             spread = float(errs.max() - errs.min())
             railed = i in (0, len(scan) - 1)
-            ident = spread > NOISE_PX and not railed
-            results[name] = {"identified": bool(ident), "cd": float(scan[i]), "seed": seed,
+            explains = float(errs[i]) <= MAX_FIT_PX
+            ident = explains and spread > NOISE_PX and not railed
+            why = ("ok" if ident else
+                   ("sim cannot reproduce this motion" if not explains else
+                    ("optimum outside the tested range" if railed else "parameter barely affects the motion")))
+            results[name] = {"identified": bool(ident), "why": why,
+                             "cd": float(scan[i]), "seed": seed,
                              "spread_px": spread, "fit_px": float(errs[i]), "railed": bool(railed),
-                             "equiv_radius_m": float(R), "scan": scan.tolist(),
-                             "errs": errs.tolist()}
+                             "scan": scan.tolist(), "errs": errs.tolist()}
             print(f"  -> {name}: cd={scan[i]:.1f} fit={errs[i]:.1f}px spread={spread:.1f}px "
-                  f"{'IDENTIFIED' if ident else ('railed' if railed else 'not identified')}")
+                  f"{'IDENTIFIED' if ident else 'NOT identified: ' + why}")
 
     (OUT / "recovered.json").write_text(json.dumps(results, indent=2))
     print("\nwrote", OUT / "recovered.json")
