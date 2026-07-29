@@ -29,7 +29,9 @@ LAB = REPO / "outputs" / "scene" / "fulllab"
 SUBSTEPS, K_CONTACT, PITCH = 60, 2500.0, 0.020
 CD_GRID = np.geomspace(1.0, 300.0, 8)
 MU_GRID = np.linspace(0.05, 1.1, 6)
-RATIO_GRID = np.geomspace(0.2, 5.0, 7)
+# reach light-enough targets for a HEAVY mover: the brass pot's observed transfer is 0.98
+# and the old grid could only simulate up to 0.60, so no candidate could match it
+RATIO_GRID = np.geomspace(0.06, 6.0, 10)
 AGREE_MAX = 4.0        # seeds may differ by at most this factor for a value to stand
 
 
@@ -234,7 +236,7 @@ def main():
                 best = (1e9, None)
                 for rr in RATIO_GRID:
                     # the launch speed must be allowed to be high enough to actually arrive
-                    for v0 in (0.8, 1.2, 1.6, 2.0, 2.4):
+                    for v0 in (0.6, 0.9, 1.2, 1.5, 1.8, 2.1, 2.4):
                         d = dist("collide", sg, {"cd": cd_med, "mu": mu_for_collide,
                                                  "ratio": float(rr)}, v0)
                         if d < best[0]:

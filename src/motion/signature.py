@@ -202,7 +202,11 @@ def collide_signature(mover_xy, target_xy, size_px):
             "impact_frac": float(hit / len(dm))}
 
 
-COLLIDE_WEIGHTS = {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.4}
+# impact_frac is set by the LAUNCH VELOCITY — a per-clip nuisance we do not care about —
+# not by the material. Weighting it heavily penalised timing mismatches that carry no
+# physical information and pushed otherwise-good collisions over the rejection threshold
+# (the apple's textbook take scored 0.404 against a 0.30 gate almost entirely on timing).
+COLLIDE_WEIGHTS = {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.12}
 
 
 def collide_distance(a, b):

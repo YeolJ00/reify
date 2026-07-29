@@ -1419,3 +1419,40 @@ General lesson, now encoded: **propagate the STATUS of a value, not just the val
 stage already computed whether its result was established; nothing was honouring that
 between stages, so a bad number travelled silently and surfaced two stages later disguised
 as missing data.
+
+## M35 — remaining collision diagnostic, and a limit on what "established" means
+
+Diagnosed each remaining failure precisely. Three different causes, none of them the data:
+- **apple**: the sim CAN reproduce the observed collision (its transfer range 0.18-4.00
+  covers the observed 0.86) but scored 0.404 against a 0.30 gate almost entirely on
+  IMPACT TIMING — which is set by the launch velocity, a per-clip nuisance, not by the
+  material. Weighting a nuisance at 0.4 let it vote on whether a measurement was credible.
+  Down-weighted to 0.12.
+- **brass_pot**: observed transfer 0.98, but the sim could only reach 0.60 anywhere on the
+  mass grid — for a heavy mover to hand over that much motion the target must be lighter
+  than the grid minimum. Grid extended 0.2 -> 0.06. (It also collided in only 3/35 cells vs
+  the apple's 19, hence a finer/faster launch grid.)
+- **baseball**: genuinely marginal (0.234 accept / 0.350 reject) — real borderline data.
+
+**Result after the fixes: baseball's mass establishes (2.156, 2 takes agreeing) — but the
+ceramic vase LOST its established status (3.82 -> 2.785, agreement 1.7x -> 4.6x).**
+
+That trade is the important finding, and it is a caution rather than a win:
+
+    object          impact_frac=0.40        impact_frac=0.12+wider grid   change
+    ceramic_vase    3.82  ESTABLISHED       2.79  not established         1.4x
+    baseball        1.00  not established   2.16  ESTABLISHED             2.2x
+    rubber_duck     0.20  railed            3.60  1 take                 18.0x
+
+**Two objects changed established-status from an objective-weight change alone.** So the
+seed-agreement figure is NOT the whole uncertainty: model/objective choice moves these
+values by 1.4-2.2x, comparable to or larger than the seed spread we were reporting as the
+error bar. Physical check: the apple/baseball density ratio is really ~1.12; we recover
+2.16 here and 1.49 from the earlier pair-lab — right order, about 2x out either way.
+
+Conclusion: **mass should be reported with a factor-~2 band, not as a point value**, and
+the confidence machinery needs a second axis (objective/model sensitivity) alongside seed
+agreement. Both of my collision "fixes" were legitimate bug fixes, but the fact that
+which objects pass keeps changing under them is itself the signal that these values are
+not yet solid. Chasing further objective tweaks until the numbers look right would be
+cherry-picking by another name, so stopping here and reporting the band.
