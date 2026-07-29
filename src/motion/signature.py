@@ -193,12 +193,27 @@ def collide_signature(mover_xy, target_xy, size_px):
         return None                              # the mover never actually came in
     transfer = float((dt[-1] - dt[hit]) / approach)
     kept = float((dm[-1] - dm[hit]) / approach)
+
+    # EARLY-WINDOW transfer: the mass information lives in the velocity JUMP at impact,
+    # but total travel afterwards is set by friction as much as by mass (measured: mass
+    # moves it 0.596, friction 0.496). Comparing the two objects over a SHORT window
+    # either side of the impact keeps most of the mass signal while cancelling much of
+    # the friction, because both objects sit on the same surface and are decelerating
+    # together. The window is a compromise: long enough to beat ~2 px tracking noise,
+    # short enough that friction has not yet dominated.
+    W = 4
+    a0 = max(hit - W, 0)
+    approach_v = (dm[hit] - dm[a0]) / max(hit - a0, 1)
+    b1 = min(hit + W, len(dt) - 1)
+    depart_v = (dt[b1] - dt[hit]) / max(b1 - hit, 1)
+    transfer_early = float(np.clip(depart_v / max(approach_v, 1e-6), 0.0, 4.0))
     # PHYSICAL PLAUSIBILITY. A struck object cannot leave the impact with more motion
     # than it arrived with, and a "collision" that barely moves the target is not the
     # experiment we asked for. Either way there is no mass information in the clip.
     if kept > 1.15 or transfer < 0.05:
         return None
     return {"transfer": float(np.clip(transfer, 0.0, 4.0)),
+            "transfer_early": transfer_early,
             "mover_kept": float(np.clip(kept, 0.0, 1.15)),
             "impact_frac": float(hit / len(dm))}
 
@@ -207,7 +222,8 @@ def collide_signature(mover_xy, target_xy, size_px):
 # not by the material. Weighting it heavily penalised timing mismatches that carry no
 # physical information and pushed otherwise-good collisions over the rejection threshold
 # (the apple's textbook take scored 0.404 against a 0.30 gate almost entirely on timing).
-COLLIDE_WEIGHTS = {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.12}
+COLLIDE_WEIGHTS = {"transfer_early": 1.0, "transfer": 0.35,
+                   "mover_kept": 0.5, "impact_frac": 0.12}
 
 
 def collide_distance(a, b, weights=None):
@@ -226,9 +242,11 @@ OBJECTIVE_VARIANTS = {
     "timing-heavy": {"drop": {"rebound_fraction": 1.0, "settle_frac": 0.45,
                               "fall_frac": 0.8, "slide_frac": 0.8},
                      "slide": {"total_travel": 0.35, "decel_ratio": 1.0, "stop_frac": 1.0},
-                     "collide": {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.40}},
+                     "collide": {"transfer_early": 1.0, "transfer": 0.35,
+                                 "mover_kept": 0.7, "impact_frac": 0.40}},
     "amplitude-only": {"drop": {"rebound_fraction": 1.0, "settle_frac": 0.1,
                                 "fall_frac": 0.05, "slide_frac": 0.3},
                        "slide": {"total_travel": 1.0, "decel_ratio": 0.6, "stop_frac": 0.2},
-                       "collide": {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.02}},
+                       "collide": {"transfer_early": 1.0, "transfer": 0.35,
+                                   "mover_kept": 0.7, "impact_frac": 0.02}},
 }
