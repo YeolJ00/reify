@@ -114,8 +114,9 @@ def main():
 
     import warp as wp
     from src.data.assets import decimate, load_asset
-    from src.motion.signature import (collide_distance, collide_signature, drop_signature,
-                                      signature_distance, slide_distance, slide_signature)
+    from src.motion.signature import (OBJECTIVE_VARIANTS, collide_distance, collide_signature,
+                                      drop_signature, signature_distance, slide_distance,
+                                      slide_signature)
     from src.render.camera import Camera
     from src.sim.diff_collide_mesh import sphere_cover
     from src.sim.probe_scene import ProbeScene
@@ -181,18 +182,31 @@ def main():
                 s.rollout(); P = s.positions(SUBSTEPS)
                 return P[:nf] if np.isfinite(P).all() else None
 
-            def dist(kind, sg, th, v0):
+            def sim_sig(kind, th, v0):
+                """Simulate ONCE and return the signature. Scoring it under different
+                objectives afterwards is free, which is what makes the objective-
+                sensitivity axis cheap enough to run for every value."""
                 P = sim(kind, th, v0)
                 if P is None:
-                    return 1e6
+                    return None
                 uv, _ = cam.project(P[:, 0])
                 sp = seeds[f"{subj}_{kind}"]["subject"]["size_px"]
                 if kind == "drop":
-                    return signature_distance(drop_signature(uv[:, 1], uv[:, 0]), sg)
+                    return drop_signature(uv[:, 1], uv[:, 0])
                 if kind == "slide":
-                    return slide_distance(slide_signature(uv, sp), sg)
+                    return slide_signature(uv, sp)
                 uvt, _ = cam.project(P[:, 1])
-                return collide_distance(collide_signature(uv, uvt, sp), sg)
+                return collide_signature(uv, uvt, sp)
+
+            def score(kind, sim_s, obs_s, wv):
+                if kind == "drop":
+                    return signature_distance(sim_s, obs_s, wv["drop"])
+                if kind == "slide":
+                    return slide_distance(sim_s, obs_s, wv["slide"])
+                return collide_distance(sim_s, obs_s, wv["collide"])
+
+            def dist(kind, sg, th, v0):
+                return score(kind, sim_sig(kind, th, v0), sg, OBJECTIVE_VARIANTS["balanced"])
 
             # --- per-take fits, then consensus across seeds ---
             out = {}
@@ -245,6 +259,41 @@ def main():
                     vals.append(best[1])
             out["ratio"] = vals
 
+            # ---- second uncertainty axis: how much does the ANSWER depend on how we
+            # chose to score? Re-uses the cached simulations, so it is nearly free.
+            obj_spread = {}
+            for pname, kind, grid in (("cd", "drop", CD_GRID), ("mu", "slide", MU_GRID),
+                                      ("ratio", "collide", RATIO_GRID)):
+                takes = per_exp.get(kind, [])
+                if not takes:
+                    continue
+                sg0 = takes[0][0]
+                v0s = [0.0] if kind == "drop" else (0.6, 1.2, 1.8, 2.4)
+                cache = []
+                for g in grid:
+                    th = {"cd": cd_med, "mu": mu_med if pname != "mu" else float(g),
+                          "ratio": 1.0 if pname != "ratio" else float(g)}
+                    if pname == "cd":
+                        th["cd"] = float(g)
+                    if pname == "ratio":
+                        th["mu"] = mu_for_collide if "mu_for_collide" in dir() else 0.4
+                    cache.append([sim_sig(kind, th, v) for v in v0s])
+                picks = []
+                for vname, wv in OBJECTIVE_VARIANTS.items():
+                    best = (1e9, None)
+                    for gi, g in enumerate(grid):
+                        for si in range(len(v0s)):
+                            d = score(kind, cache[gi][si], sg0, wv)
+                            if d < best[0]:
+                                best = (d, float(g))
+                    if best[1] is not None and best[0] < 1e5:
+                        picks.append(best[1])
+                if len(picks) >= 2:
+                    a = np.array(picks, float)
+                    obj_spread[pname] = float(a.max() / max(a.min(), 1e-6))
+                    print(f"  objective sweep {pname:6s}: {[round(x,3) for x in picks]} "
+                          f"-> varies {obj_spread[pname]:.1f}x with how we score")
+
             rec = {}
             for key, med_default in (("cd", None), ("mu", None), ("ratio", None)):
                 v = out[key]
@@ -256,17 +305,23 @@ def main():
                 med = float(np.exp(np.median(np.log(arr)))) if key != "mu" else float(np.median(arr))
                 if len(arr) == 1:
                     rec[key] = {"value": med, "n": 1, "agree": None,
+                                "objective_spread": obj_spread.get(key),
                                 "why": "single take — no repeatability check"}
                     print(f"  {key:6s}: {med:.3f}  (1 take, unverified)")
                     continue
                 spread = (float(arr.max() / max(arr.min(), 1e-6)) if key != "mu"
                           else float((arr.max() + .05) / (arr.min() + .05)))
-                ok = spread <= AGREE_MAX
+                osp = obj_spread.get(key)
+                ok = spread <= AGREE_MAX and (osp is None or osp <= AGREE_MAX)
+                why = ("ok" if ok else
+                       (f"seeds disagree by {spread:.1f}x" if spread > AGREE_MAX
+                        else f"answer moves {osp:.1f}x with the scoring choice"))
                 rec[key] = {"value": med if ok else None, "n": len(arr),
-                            "agree": spread, "samples": arr.tolist(),
-                            "why": "ok" if ok else f"seeds disagree by {spread:.1f}x"}
-                print(f"  {key:6s}: {med:.3f} from {len(arr)} takes, spread {spread:.1f}x "
-                      f"-> {'ESTABLISHED' if ok else 'not established'}")
+                            "agree": spread, "objective_spread": osp,
+                            "samples": arr.tolist(), "why": why}
+                print(f"  {key:6s}: {med:.3f} | seeds {spread:.1f}x | objective "
+                      f"{('%.1fx' % osp) if osp else 'n/a':>5s} -> "
+                      f"{'ESTABLISHED' if ok else 'not established: ' + why}")
             results[subj] = rec
 
     (LAB / "recovered.json").write_text(json.dumps(results, indent=2))

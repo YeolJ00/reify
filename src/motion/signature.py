@@ -101,12 +101,13 @@ WEIGHTS = {"rebound_fraction": 1.0, "settle_frac": 0.45, "fall_frac": 0.35,
            "slide_frac": 0.8}   # the friction channel
 
 
-def signature_distance(a, b):
+def signature_distance(a, b, weights=None):
     """Weighted distance between two drop signatures (0 = identical)."""
     if a is None or b is None:
         return 1e6
-    return float(np.sqrt(sum(w * (a[k] - b[k]) ** 2 for k, w in WEIGHTS.items())
-                         / sum(WEIGHTS.values())))
+    W = weights or WEIGHTS
+    return float(np.sqrt(sum(w * (a[k] - b[k]) ** 2 for k, w in W.items())
+                         / sum(W.values())))
 
 
 def describe(sig):
@@ -158,15 +159,15 @@ def slide_signature(xy, size_px, moving_eps=0.03):
 SLIDE_WEIGHTS = {"total_travel": 0.35, "decel_ratio": 1.0, "stop_frac": 0.6}
 
 
-def slide_distance(a, b):
+def slide_distance(a, b, weights=None):
     if a is None or b is None:
         return 1e6
+    W = weights or SLIDE_WEIGHTS
     # total_travel is compared in log space: it spans a wide range and we care about
     # relative error, not absolute object-widths
     da = np.log1p(a["total_travel"]) - np.log1p(b["total_travel"])
-    rest = sum(w * (a[k] - b[k]) ** 2 for k, w in SLIDE_WEIGHTS.items() if k != "total_travel")
-    return float(np.sqrt((SLIDE_WEIGHTS["total_travel"] * da ** 2 + rest)
-                         / sum(SLIDE_WEIGHTS.values())))
+    rest = sum(w * (a[k] - b[k]) ** 2 for k, w in W.items() if k != "total_travel")
+    return float(np.sqrt((W["total_travel"] * da ** 2 + rest) / sum(W.values())))
 
 
 def collide_signature(mover_xy, target_xy, size_px):
@@ -209,8 +210,25 @@ def collide_signature(mover_xy, target_xy, size_px):
 COLLIDE_WEIGHTS = {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.12}
 
 
-def collide_distance(a, b):
+def collide_distance(a, b, weights=None):
     if a is None or b is None:
         return 1e6
-    return float(np.sqrt(sum(w * (a[k] - b[k]) ** 2 for k, w in COLLIDE_WEIGHTS.items())
-                         / sum(COLLIDE_WEIGHTS.values())))
+    W = weights or COLLIDE_WEIGHTS
+    return float(np.sqrt(sum(w * (a[k] - b[k]) ** 2 for k, w in W.items()) / sum(W.values())))
+
+
+# Reasonable alternative objectives. A value that only survives one of these is an
+# artefact of how we chose to score, not a property of the object — so we re-score the
+# SAME simulations under all of them and report the spread as a second uncertainty axis
+# alongside seed-to-seed agreement.
+OBJECTIVE_VARIANTS = {
+    "balanced":     {"drop": None, "slide": None, "collide": None},
+    "timing-heavy": {"drop": {"rebound_fraction": 1.0, "settle_frac": 0.45,
+                              "fall_frac": 0.8, "slide_frac": 0.8},
+                     "slide": {"total_travel": 0.35, "decel_ratio": 1.0, "stop_frac": 1.0},
+                     "collide": {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.40}},
+    "amplitude-only": {"drop": {"rebound_fraction": 1.0, "settle_frac": 0.1,
+                                "fall_frac": 0.05, "slide_frac": 0.3},
+                       "slide": {"total_travel": 1.0, "decel_ratio": 0.6, "stop_frac": 0.2},
+                       "collide": {"transfer": 1.0, "mover_kept": 0.7, "impact_frac": 0.02}},
+}

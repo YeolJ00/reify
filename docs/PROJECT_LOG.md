@@ -1456,3 +1456,33 @@ agreement. Both of my collision "fixes" were legitimate bug fixes, but the fact 
 which objects pass keeps changing under them is itself the signal that these values are
 not yet solid. Chasing further objective tweaks until the numbers look right would be
 cherry-picking by another name, so stopping here and reporting the band.
+
+## M36 — objective sensitivity as a second confidence axis (2026-07-29)
+
+Every value is now judged on TWO axes, not one:
+    seeds      does the answer survive a different random seed?
+    objective  does it survive a different reasonable way of scoring the fit?
+A value must pass both. Implemented cheaply by simulating once per grid point and caching
+the SIGNATURE, so re-scoring under each of three objective variants (balanced /
+timing-heavy / amplitude-only) costs nothing extra.
+
+**It immediately caught the value I was about to report last turn.** The baseball's mass
+ratio has PERFECT seed agreement (1.0x) but moves 7.7x depending only on how the fit is
+scored — so it is now correctly rejected. Seed agreement alone would have called it
+established. That is exactly the failure mode flagged in M35, now detected automatically
+rather than by hand.
+
+Final state — established values (pass both axes):
+    brass_pot    friction 0.365   seeds 1.7x  objective 2.3x
+    ceramic_vase friction 0.470   seeds 1.0x  objective 1.0x   (cleanest value in the project)
+Everything else is single-take, seed-disagreeing, objective-sensitive, or railed.
+Asset: 7 measured values across 5/7 objects, each carrying both spreads.
+
+**Mass is established nowhere once objective sensitivity is counted** — the earlier
+"established" mass readings (M34's vase 3.82, M35's baseball 2.156) both fail the second
+axis. That is the honest position and it supersedes both.
+
+Caveat worth remembering: **railing masquerades as agreement.** The apple's friction sits
+at the grid maximum under all three objectives, so its objective spread reads a perfect
+1.0x. Agreement metrics cannot detect a boundary optimum; only the explicit railed-check
+catches it (and does, downgrading it before it is written).
