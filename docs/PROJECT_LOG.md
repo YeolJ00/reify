@@ -1337,3 +1337,47 @@ joint is the better estimator.
 Open: the drop signature needs a plausibility gate of its own (an 86% rebound for an apple
 should be rejected the way an accelerating collision now is), which is likely why
 restitution is unconstrained in both fits.
+
+## M33 — drop gate, scene-wide lab, repeatability harness (2026-07-29)
+
+All three next steps.
+
+**Drop plausibility gate** (`src/motion/signature.py`). Rebound/fall is e^2, so >0.80 needs
+e>0.89 — a superball. Plus: a real bounce must come back DOWN (a trace ending at its peak
+was still rising), and a fall under 20 px makes the ratio noise. Rejects 5 of 43 existing
+takes: calibrated rather than blunt, and it removes the 86% apple rebound that was
+poisoning the earlier restitution fit.
+
+**Scene-wide lab** (`blender_full_lab.py`, `gen_full_lab.py`): 15 experiments =
+drop/slide/collide for all five probeable objects, 45 clips, every collision against the
+SAME reference object so mass ratios share one scale. All 45 generated and tracked.
+
+**Repeatability harness** (`full_lab_fit.py`): per-take fits with seed agreement as the
+uncertainty; a value the seeds disagree about by >4x is "not established", a value from a
+single take is "unverified".
+
+    object         restitution                       friction                      mass
+    apple          5.10  1 take, unverified          1.100 RAILED at grid max      no take
+    baseball       58.8  3 takes, 11.5x -> refused   0.680 1 take, unverified      no take
+    brass_pot      no usable take                    0.365 2 takes, 1.7x ESTAB.    no take
+    ceramic_vase   132.8 1 take, unverified          0.470 2 takes, 1.0x ESTAB.    1.00 1 take
+    rubber_duck    nothing usable at all
+
+**Final asset: 6 measured values across 4/7 objects.** The three genuinely established
+values are all FRICTION, and all three are physically plausible:
+    brass_pot 0.365 (metal on wood ~0.3-0.5), ceramic_vase 0.470 (ceramic ~0.4-0.6),
+    baseball 0.680 (leather ~0.4-0.6, at the high edge)
+
+Honest reading:
+- **Friction is the reliable channel.** The slide gives 3/3 usable takes on every object and
+  the tightest seed agreement in the project (1.7x). Sliding is slow and sustained, which is
+  what a 24 fps generated clip represents well.
+- **Restitution is not established anywhere.** The baseball had three usable takes that
+  disagree by 11.5x. Before the consensus test this would have been reported as a confident
+  number by picking one take — the harness is catching exactly the error made in M29.
+- **Mass is established nowhere**: no usable collision for any object even at an 11 cm gap.
+  It is the one parameter with no substitute experiment.
+- The apple's friction railed at the grid maximum (1.1) and is downgraded rather than
+  written — a bound is not a measurement.
+- The rubber duck failed every experiment; the ceramic vase's restitution (0.98) is still
+  the toppling artefact flagged in M29 and should not be trusted.
