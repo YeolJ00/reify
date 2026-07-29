@@ -1486,3 +1486,35 @@ Caveat worth remembering: **railing masquerades as agreement.** The apple's fric
 at the grid maximum under all three objectives, so its objective spread reads a perfect
 1.0x. Agreement metrics cannot detect a boundary optimum; only the explicit railed-check
 catches it (and does, downgrading it before it is written).
+
+## M38 — reference friction established; mass still not, and why
+
+Generated 8 more baseball slide clips (3 -> 11), because every collision uses the baseball
+as the reference and its friction governs how far the struck object travels in EVERY mass
+measurement.
+
+**The reference measurement succeeded on its own terms:**
+    baseball friction 0.680 from 11 usable takes, seeds 1.6x, objective 1.0x -> ESTABLISHED
+Four objects now have established friction (apple's rails at the grid max and is
+downgraded before writing): baseball 0.680, brass_pot 0.365, ceramic_vase 0.470.
+
+**But it did not unblock mass — and the way it failed is the most useful part.** The
+baseball's mass ratio moved from 2.156 to 0.465 purely because the friction estimate
+improved: a **4.6x shift in the mass answer from fixing a different parameter**. That is
+direct confirmation that the confound measured in M37 is real and severe, and that every
+earlier mass number was contaminated by a bad friction estimate.
+
+Mass is established nowhere. The binding constraint has now MOVED: it is no longer a bad
+friction, it is **too few usable collision takes** (apple 1, baseball 1, vase's 2 disagree
+by 4.6x, pot and duck none). The slide went from 1 usable take to 11 by generating 8 more
+clips; collisions have had no equivalent treatment.
+
+Next lever, in order:
+1. many more collision seeds per object — the same treatment that worked for the slide
+2. a faster impact, to raise SNR on the velocity jump
+3. >=60 fps video — the actual cure, unavailable with Cosmos at 24 fps
+
+Requirements this project can now hand a video-model vendor, both derived from measurement
+rather than opinion:
+    >= 60 fps          (a 3-5 frame momentum transfer cannot be resolved at 24)
+    <= ~10 px physical inconsistency  (from the held-out test in M25)
