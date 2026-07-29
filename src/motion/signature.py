@@ -56,7 +56,24 @@ def drop_signature(y_image, x_image=None, hold_frames=3, still_eps=0.015):
         return None                                        # never actually landed
     after = h[i_hit:]
     reb = float(after.max()) - float(h[i_hit])
-    rebound_fraction = float(np.clip(reb / drop, 0.0, 1.5))
+    rebound_fraction = float(reb / drop)
+
+    # PHYSICAL PLAUSIBILITY, the same idea already applied to collisions.
+    #  * rebound height / drop height is e^2, so a 0.8 reading needs e ~ 0.89 — a
+    #    superball. Ordinary props do not do that, and in practice such readings came
+    #    from a tracker drifting or a tall object TOPPLING (tipping lifts the centroid,
+    #    which looks exactly like a spectacular bounce).
+    #  * a real bounce comes back DOWN; if the trace ends at its highest point the object
+    #    was still rising when the clip ended, so nothing was measured.
+    #  * a tiny fall makes the ratio noise.
+    if rebound_fraction > 0.80:
+        return None
+    if drop < 20.0:
+        return None
+    i_peak = i_hit + int(np.argmax(after))
+    if i_peak >= n - 2 and rebound_fraction > 0.15:
+        return None
+    rebound_fraction = float(np.clip(rebound_fraction, 0.0, 1.5))
 
     # settle: last moment the trace still moves appreciably, in units of the drop
     v = np.abs(np.diff(h)) / drop
