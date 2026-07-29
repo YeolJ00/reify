@@ -220,12 +220,23 @@ def main():
             mu_med = float(np.median(vals)) if vals else 0.4
 
             # 3. mass ratio from each usable collision, the other two held at consensus
+            # Do NOT propagate an unreliable friction into the collision stage. The apple's
+            # friction railed at the top of the grid (1.1); feeding that forward made the
+            # simulated mover decelerate so hard it never reached the target, so the mass
+            # measurement failed for a reason that had nothing to do with mass. A stage may
+            # only inherit a value that was actually established.
+            mu_for_collide = mu_med if (len(out["mu"]) >= 2 and mu_med < 1.05) else 0.40
+            if mu_for_collide != mu_med:
+                print(f"  (collision uses mu={mu_for_collide} — the slide's {mu_med:.2f} "
+                      f"was not reliable enough to inherit)")
             vals = []
             for sg, sd in per_exp.get("collide", []):
                 best = (1e9, None)
                 for rr in RATIO_GRID:
-                    for v0 in (0.5, 0.9, 1.4):
-                        d = dist("collide", sg, {"cd": cd_med, "mu": mu_med, "ratio": float(rr)}, v0)
+                    # the launch speed must be allowed to be high enough to actually arrive
+                    for v0 in (0.8, 1.2, 1.6, 2.0, 2.4):
+                        d = dist("collide", sg, {"cd": cd_med, "mu": mu_for_collide,
+                                                 "ratio": float(rr)}, v0)
                         if d < best[0]:
                             best = (d, float(rr))
                 if best[0] < 0.30:

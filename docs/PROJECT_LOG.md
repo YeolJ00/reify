@@ -1381,3 +1381,41 @@ Honest reading:
   written — a bound is not a measurement.
 - The rubber duck failed every experiment; the ceramic vase's restitution (0.98) is still
   the toppling artefact flagged in M29 and should not be trusted.
+
+## M34 — mass established; the failure was error propagation, not the collision data
+
+Diagnosed why every mass measurement failed. It was NOT the collisions: 7 of 15 takes have
+good collision signatures, the apple's being textbook (approach 1.2 object-widths,
+transfer 0.86, mover keeps 0.04). The failure was a cascade:
+
+    apple friction railed at the grid maximum (1.10)
+      -> the collision stage INHERITED it
+      -> at mu=1.10 the simulated mover decelerates so hard it never reaches the target
+      -> no collision in sim at any launch speed searched
+      -> every candidate mass ratio scores identically badly -> "no usable take"
+
+Verified directly: at mu=1.10 the sim produces no collision at any velocity; at mu=0.40 it
+collides at v0=1.4 and 2.0 m/s.
+
+Fixes: (1) a stage may only inherit a value that was actually ESTABLISHED — an unreliable
+or railed value is replaced by a neutral default; (2) the launch-speed search was widened
+so the mover can arrive; (3) railed mass ratios are downgraded to bounds the same way
+railed frictions already were (the duck came back at exactly the grid minimum).
+
+**Result — mass is established for the first time:**
+    ceramic_vase   ratio 3.82 (baseball density / vase density), 2 takes, seeds agree 1.7x
+                   -> vase density written as 178 kg/m3
+    Sanity: a baseball is ~740 kg/m3 and a HOLLOW ceramic vessel's effective density over
+    its volume is a few hundred, so a ratio above 1 is the right direction and the
+    magnitude is the right order.
+    baseball  ratio 1.00 but seeds disagree 8.5x -> not established
+    duck      railed at the grid minimum -> downgraded to a bound
+    apple, brass_pot  still no usable collision
+
+The ceramic vase now carries all three parameters measured. Final asset: 6 measured values
+across 4/7 objects.
+
+General lesson, now encoded: **propagate the STATUS of a value, not just the value.** Every
+stage already computed whether its result was established; nothing was honouring that
+between stages, so a bad number travelled silently and surfaced two stages later disguised
+as missing data.

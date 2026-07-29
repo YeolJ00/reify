@@ -103,6 +103,11 @@ def main():
                 conf["dynamic_friction"] = 0.35 if ag is None else float(np.clip(1.0 - (ag - 1) / 3.0, 0.1, 0.95))
 
             rar = r.get("ratio", {})
+            # same rule as friction: a value sitting on the edge of the searched grid is a
+            # bound, not a measurement (the duck came back at exactly 0.200, the minimum)
+            if rar.get("value") is not None and (abs(rar["value"] - 0.2) < 1e-6 or
+                                                 abs(rar["value"] - 5.0) < 1e-6):
+                rar = {"value": None, "why": "railed at the edge of the searched range"}
             if rar.get("value") is not None:
                 # ratio is partner/subject density with the reference as partner
                 v["density"] = float(REF_DENSITY / max(rar["value"], 1e-6))
