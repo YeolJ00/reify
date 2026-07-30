@@ -1518,3 +1518,93 @@ Requirements this project can now hand a video-model vendor, both derived from m
 rather than opinion:
     >= 60 fps          (a 3-5 frame momentum transfer cannot be resolved at 24)
     <= ~10 px physical inconsistency  (from the held-out test in M25)
+
+---
+
+## M39 — the estimator was manufacturing numbers; rebuilt it as direct measurement
+
+Earlier entries reference `src/motion/signature.py`, `scripts/full_lab_fit.py`,
+`scripts/lab_joint_fit.py` and `scripts/recover_scene_objects.py`. **These are deleted.**
+The history above is left as written; this entry records why they went and what replaced
+them.
+
+**What went wrong.** Asked to check whether mass finally established, we instead looked at
+the clips. Over 55 collision takes the ceramic vase's subject never displaced more than
+21 px and the rubber duck never more than 17 px, against a gap of ~23-43 px they had to
+close. **The videos did not contain the experiment.** The old acceptance test missed this
+because it measured PATH LENGTH, which integrates |dx| every frame and so accumulates
+tracking jitter without bound — 49 frames of +-2 px noise manufactures ~100 px of "travel"
+from a stationary object. Net displacement does not accumulate. An audit on that basis
+found **21 of 47 "usable" takes were measuring nothing.**
+
+Two further defects, both predating any video:
+  * the brass pot **overlaps its partner in the initial frame** (60.6 px apart, contact at
+    62.3 px), so that collision had no approach to observe and was invalid as staged;
+  * `min_travel` as a single global constant is the wrong instrument — the travel needed to
+    reach the partner ranges 0.00 to 1.05 object-widths across our own five objects.
+
+**Why the whole approach was wrong, not just the gate.** The old fitter searched a grid for
+the theta whose hand-weighted signature best matched, and a grid always returns a best
+match; it never asks whether the observation constrains anything. Direct measurement asks
+first. On the SAME 10 baseball slide takes, the individual takes give mu = 0.007, 0.015,
+0.020, 0.043, 0.071, 0.079, 0.090, 0.154, 0.268, 0.285 — and the grid fitter reported
+**0.680 "established"**, a value outside the entire range any single take supports. It also
+reported the apple at exactly 1.100, the grid maximum, as ESTABLISHED: a railed bound
+presented as a measurement.
+
+**The replacement** (`src/motion/observables.py`, `scripts/simple_fit.py`, 842 -> 512
+lines). Each probe is analytically invertible, so nothing is searched:
+
+    drop     e   = |v_up| / |v_down|                          dimensionless
+    slide    mu  = |a| / g                                    needs the px<->m scale
+    collide  m_target/m_mover = (v_pre - v_post) / v_target    dimensionless
+
+Every quantity is a velocity from a least-squares fit over ~5 frames, which yields a
+standard error for free. Consequences:
+  * gone: `CD_GRID`, `MU_GRID`, `RATIO_GRID`, `OBJECTIVE_VARIANTS`, `COLLIDE_WEIGHTS`,
+    `SLIDE_WEIGHTS`, `AGREE_MAX`, `MIN_MOVER_TRAVEL`, `MIN_APPROACH_PX`. No tunables.
+  * the three scoring objectives existed only because no single loss was ever justified;
+    they measured our own arbitrariness and reported it as physics uncertainty.
+  * "did it move" becomes a **significance test** on the fitted velocity — one principle,
+    no thresholds in object-widths.
+  * "no bounce" becomes a measurement (e = 0 +- sigma) instead of a rejected take.
+  * `established / unverified / not-established` is gone: an interval spanning the
+    plausible range already says it.
+  * takes outside the physically possible range (a mover that SPEEDS UP through impact,
+    implying negative mass) are reported and excluded, never averaged. 3 of the brass
+    pot's 5 collisions do this; averaging them in previously gave m_t/m_m = -0.285.
+
+**Result: 0 of 15 parameters measured with an interval tighter than +-25% from more than
+one take.** Nothing in the scene is currently measurable from this video.
+
+| object | restitution | friction | mass ratio |
+|---|---|---|---|
+| apple | — | 0.01 (1 take) | — |
+| baseball | 0.00 +- 0.04 | 0.01 +- 0.03 | — |
+| brass pot | 0.05 +- 0.08 | — | 0.51 +- 0.47 |
+| ceramic vase | — | 0.01 (1 take) | — |
+| rubber duck | — | — | — |
+
+**A probe-design error this exposed.** The mu ~ 0.01-0.09 readings are about right for
+**rolling resistance** of a ball on wood — which is not the Coulomb mu the simulator
+consumes. A sphere's deceleration cannot measure sliding friction. The slide probe is valid
+only for objects that actually slide (book, box), not the baseball or apple.
+
+**Retractions.** The M38 claim that 60 fps was "the diagnosis" for mass was wrong: the
+per-take fits were individually decisive (12x and 23x contrast) and mutually contradictory,
+which is generator non-repeatability, not temporal resolution. Frame rate cannot be the
+binding constraint while half the clips contain no motion. Also retracted: the "true"
+densities used to judge error were a hardcoded `PRIOR` dict of textbook guesses, anchored
+by `REF_DENSITY = 680` taken from that same dict — downloaded GLTF meshes have no true
+density, and there is no ground truth anywhere in the generated-video path.
+
+**Still load-bearing, extracted rather than deleted:** `src/lab/staging.py` (`obj_geom`,
+contact constants) and `scripts/prepare_lab.py` (`seeds` and `track` subcommands, the
+CoTracker pass). `scripts/inspect_collide_clips.py` was ported to the new observables and
+remains the fastest way to see whether a clip contains its experiment.
+
+**Next lever is data collection, not estimation.** Screen the generator before designing
+probes: for each candidate, generate a few clips and measure *did the intended thing move*.
+Static-equilibrium probes (flotation for absolute density against water, a balance beam for
+mass ratio) remove both the frame-rate sensitivity and the arbitrary density anchor — but
+they assume the model animates the object at all, which for the vase and duck it does not.
