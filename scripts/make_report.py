@@ -1,8 +1,7 @@
-"""Build docs/report.html from the measurement output. Self-contained, no CDN.
+"""Build docs/report.html from the measurement and audit output. Self-contained, no CDN.
 
-Reads outputs/scene/fulllab/simple_fit.json (written by scripts/simple_fit.py) and
-renders the figures from it, so the report cannot drift from the numbers the way the
-previous hand-maintained one did — it described a pipeline that no longer existed.
+Reads outputs/scene/fulllab/{simple_fit,audit_pixel}.json and renders every figure from
+them, so the report cannot drift from the numbers the way the hand-maintained one did.
 
 Run: python scripts/make_report.py            (warp env, no GPU)
 """
@@ -29,16 +28,11 @@ PLATE = "#f7f9fb"
 PARAMS = [("drop", "restitution", "e", (0.0, 1.0)),
           ("slide", "friction", "μ", (0.0, 1.2)),
           ("collide", "mass ratio", "m$_t$/m$_m$", (0.0, 2.0))]
-# Typical handbook values for these materials. Shown as a REFERENCE BAND only: these
-# are expectations, not ground truth. A downloaded mesh has no true density, and
-# quoting error against such numbers is a mistake this project already made once.
-EXPECTED = {"drop": (0.10, 0.50), "slide": (0.30, 0.60), "collide": None}
 NICE = {"apple": "apple", "baseball": "baseball", "brass_pot": "brass pot",
         "ceramic_vase": "ceramic vase", "rubber_duck": "rubber duck"}
-
-# What the retired grid fitter reported for the same takes, for the comparison figure.
-# Kept explicit rather than recomputed: those scripts are deleted (see PROJECT_LOG M39).
 OLD_GRID = {"baseball": 0.680, "brass_pot": 0.365, "ceramic_vase": 0.470, "apple": 1.100}
+STATES = ["MOVES", "STATIC", "DEGRADED"]
+SCOL = {"MOVES": GREEN, "STATIC": LINE, "DEGRADED": RED}
 
 
 def style(ax):
@@ -48,33 +42,31 @@ def style(ax):
     for s in ("left", "bottom"):
         ax.spines[s].set_color(LINE)
     ax.tick_params(colors=MUTED, labelsize=8.5, length=3)
-    ax.grid(True, axis="both", color=LINE, lw=0.6, alpha=0.5)
+    ax.grid(True, color=LINE, lw=0.6, alpha=0.5)
     ax.set_axisbelow(True)
 
 
-def embed(fig):
+def embed(fig, photo=False):
+    """PNG for charts (flat colour, compresses well); JPEG for photographic frames.
+
+    The degrading-brass-pot filmstrip is 14 rendered photographs and was 798 KB as PNG,
+    four times the rest of the report combined.
+    """
     buf = io.BytesIO()
+    if photo:
+        fig.savefig(buf, format="jpeg", dpi=110, facecolor=PLATE, bbox_inches="tight",
+                    pil_kwargs={"quality": 82, "optimize": True})
+        plt.close(fig)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
     fig.savefig(buf, format="png", dpi=150, facecolor=PLATE, bbox_inches="tight")
     plt.close(fig)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-def embed_file(p, max_w=1500):
-    if not Path(p).exists():
-        return None
-    from PIL import Image
-    im = Image.open(p).convert("RGB")
-    if im.width > max_w:
-        im = im.resize((max_w, int(im.height * max_w / im.width)), Image.LANCZOS)
-    buf = io.BytesIO(); im.save(buf, format="JPEG", quality=86)
-    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
 def fig_two_estimators(d):
-    """The single most important figure: per-take spread vs what the grid reported."""
     rows = [(o, d[o]["slide"]) for o in d
             if d[o].get("slide", {}).get("value") is not None]
-    rows.sort(key=lambda r: r[1]["n"])                 # largest n at the top
+    rows.sort(key=lambda r: r[1]["n"])
     fig, ax = plt.subplots(figsize=(8.4, 0.72 * len(rows) + 1.35))
     style(ax)
     for i, (o, r) in enumerate(rows):
@@ -92,86 +84,96 @@ def fig_two_estimators(d):
     ax.set_ylim(-0.7, len(rows) - 0.3)
     ax.set_xlabel("friction μ measured from deceleration", color=MUTED, fontsize=9)
     ax.set_xlim(-0.03, 1.20)
-    # legend ABOVE the axes: inside it overlapped the densest row
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=3,
+              loc="lower left", bbox_to_anchor=(0.0, 1.02))
+    return embed(fig)
+
+
+def fig_audit(a):
+    """MOVES / STATIC / DEGRADED per probe, from the appearance-based instrument."""
+    pk = a["per_kind"]
+    kinds = ["drop", "slide", "collide"]
+    fig, ax = plt.subplots(figsize=(8.4, 2.35))
+    style(ax)
+    y = np.arange(len(kinds))
+    left = np.zeros(len(kinds))
+    for s in STATES:
+        w = np.array([pk.get(k, {}).get(s, 0) for k in kinds], float)
+        ax.barh(y, w, left=left, color=SCOL[s], height=0.6,
+                label={"MOVES": "moves, asset intact", "STATIC": "genuinely static",
+                       "DEGRADED": "asset stops being itself"}[s])
+        left += w
+    ax.set_yticks(y); ax.set_yticklabels(kinds, fontsize=9)
+    ax.set_ylim(len(kinds) - 0.45, -0.55)
+    ax.set_xlabel("takes", color=MUTED, fontsize=9)
     ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=3,
               loc="lower left", bbox_to_anchor=(0.0, 1.02))
     return embed(fig)
 
 
 def fig_intervals(d):
-    """Forest plot: every parameter with its interval, against handbook expectation."""
     objs = list(d.keys())
-    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.15))
+    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.0))
     for ax, (kind, name, sym, rng) in zip(axes, PARAMS):
         style(ax)
-        exp = EXPECTED.get(kind)
-        if exp:
-            ax.axvspan(exp[0], exp[1], color=GREEN, alpha=0.13, zorder=0, lw=0)
         for i, o in enumerate(objs):
             r = d[o].get(kind) or {}
             if r.get("value") is None:
-                # a dashed rule instead of text: the italic label used to collide
-                # with the axis and with neighbouring panels
-                ax.hlines(i, rng[0], rng[1], color=LINE, lw=1.0, ls=(0, (3, 3)),
-                          zorder=1)
+                ax.hlines(i, rng[0], rng[1], color=LINE, lw=1.0, ls=(0, (3, 3)), zorder=1)
                 continue
             v, e = r["value"], r["interval"]
-            single = bool(r.get("single_take"))
-            col = AMBER if single else INK
+            col = AMBER if r.get("single_take") else INK
             ax.errorbar([v], [i], xerr=[[min(e, v - rng[0] + 1e-9)], [e]], fmt="o",
-                        ms=6, color=col, ecolor=col, elinewidth=1.7, capsize=3.5,
-                        zorder=3)
+                        ms=6, color=col, ecolor=col, elinewidth=1.7, capsize=3.5, zorder=3)
         ax.set_yticks(range(len(objs)))
         ax.set_yticklabels([NICE.get(o, o) for o in objs] if ax is axes[0] else [],
                            fontsize=8.5)
-        ax.set_ylim(len(objs) - 0.45, -0.55)           # padding, and top-down order
+        ax.set_ylim(len(objs) - 0.45, -0.55)
         ax.set_xlim(rng[0] - 0.03 * (rng[1] - rng[0]), rng[1])
         ax.set_title(f"{name}   {sym}", color=INK, fontsize=10, loc="left", pad=6)
     axes[0].plot([], [], color=LINE, ls=(0, (3, 3)), label="no measurement")
-    axes[0].plot([], [], "o", color=AMBER, ms=5, label="single take")
-    axes[0].add_patch(plt.Rectangle((0, 0), 0, 0, color=GREEN, alpha=0.13,
-                                    label="handbook range (expectation, not truth)"))
+    axes[0].plot([], [], "o", color=AMBER, ms=5, label="single take (uncertainty unknown)")
     fig.legend(*axes[0].get_legend_handles_labels(), frameon=False, fontsize=8.5,
-               labelcolor=MUTED, ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.06))
+               labelcolor=MUTED, ncol=2, loc="lower center", bbox_to_anchor=(0.5, -0.07))
     return embed(fig)
 
 
-def fig_audit(d):
-    """Where the 93 takes went."""
-    objs = list(d.keys())
-    meas = [sum((d[o].get(k) or {}).get("n", 0) or 0 for k, *_ in PARAMS) for o in objs]
-    nomo = [sum((d[o].get(k) or {}).get("n_rejected", 0) or 0 for k, *_ in PARAMS)
-            for o in objs]
-    cont = [sum((d[o].get(k) or {}).get("n_contradictory", 0) or 0 for k, *_ in PARAMS)
-            for o in objs]
-    fig, ax = plt.subplots(figsize=(8.4, 0.55 * len(objs) + 1.3))
-    style(ax)
-    y = np.arange(len(objs))
-    ax.barh(y, meas, color=GREEN, label="yielded a measurement", height=0.62)
-    ax.barh(y, nomo, left=meas, color=LINE, label="no measurable motion", height=0.62)
-    ax.barh(y, cont, left=np.array(meas) + np.array(nomo), color=RED,
-            label="contradicted physics", height=0.62)
-    ax.set_yticks(y); ax.set_yticklabels([NICE.get(o, o) for o in objs], fontsize=9)
-    ax.set_xlabel("takes", color=MUTED, fontsize=9)
-    ax.set_ylim(len(objs) - 0.45, -0.55)
-    ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=3,
-              loc="lower left", bbox_to_anchor=(0.0, 1.02))
-    return embed(fig), sum(meas), sum(nomo), sum(cont)
+def fig_degraded():
+    """The brass pot ceasing to be a brass pot -- the finding the old audit could not see."""
+    picks = [("brass_pot_slide_seed0", "slide"), ("brass_pot_drop_seed2", "drop")]
+    idx = [0, 8, 16, 24, 32, 40, 48]
+    fig, axes = plt.subplots(len(picks), len(idx),
+                             figsize=(1.62 * len(idx), 1.55 * len(picks)))
+    axes = np.atleast_2d(axes)
+    for r, (clip, lab) in enumerate(picks):
+        p = LAB / f"vid_{clip}.npz"
+        if not p.exists():
+            continue
+        fr = np.load(p)["frames"]
+        for c, fi in enumerate(idx):
+            ax = axes[r, c]; ax.imshow(fr[min(fi, len(fr) - 1)])
+            ax.set_xticks([]); ax.set_yticks([])
+            if r == 0:
+                ax.set_title(f"f{fi}", fontsize=8, pad=2)
+        axes[r, 0].set_ylabel(lab, fontsize=9, rotation=0, ha="right", va="center",
+                              color=INK)
+    fig.tight_layout()
+    return embed(fig, photo=True)
 
 
 def main():
     d = json.loads((LAB / "simple_fit.json").read_text())
-    f_two = fig_two_estimators(d)
-    f_int = fig_intervals(d)
-    f_aud, n_meas, n_nomo, n_cont = fig_audit(d)
-    total = n_meas + n_nomo + n_cont
-    strip = embed_file(LAB / "inspect_ceramic_vase_collide.png")
-    hero = embed_file(REPO / "outputs" / "scene" / "hero.png", 1200)
+    a = json.loads((LAB / "audit_pixel.json").read_text())
+    c = a["counts"]
+    total = sum(c.values())
+    moves, static, degraded = c.get("MOVES", 0), c.get("STATIC", 0), c.get("DEGRADED", 0)
 
+    f_two, f_aud, f_int, f_deg = (fig_two_estimators(d), fig_audit(a),
+                                  fig_intervals(d), fig_degraded())
+    nparam = sum(len(o) for o in d.values())
     usable = sum(1 for o in d.values() for r in o.values()
                  if r.get("value") is not None
                  and str(r.get("verdict", "")).startswith("usable"))
-    nparam = sum(len(o) for o in d.values())
 
     rows = ""
     for o in d:
@@ -221,8 +223,7 @@ p {{ max-width:44rem; }}
 figure {{ margin:1.5rem 0; }}
 figure img {{ width:100%; display:block; border:1px solid var(--line);
   border-radius:9px; background:var(--plate); }}
-figcaption {{ font-size:.845rem; color:var(--muted); margin-top:.6rem;
-  max-width:44rem; }}
+figcaption {{ font-size:.845rem; color:var(--muted); margin-top:.6rem; max-width:44rem; }}
 .headline {{ display:flex; flex-wrap:wrap; gap:1px; background:var(--line);
   border:1px solid var(--line); border-radius:11px; overflow:hidden; margin:2rem 0; }}
 .headline div {{ flex:1 1 12rem; background:var(--card); padding:1.15rem 1.25rem; }}
@@ -236,68 +237,58 @@ th,td {{ text-align:left; padding:.6rem .8rem; border-bottom:1px solid var(--lin
 thead th {{ font:600 11.5px/1.3 ui-monospace,monospace; letter-spacing:.08em;
   text-transform:uppercase; color:var(--muted); }}
 tbody th {{ font-weight:560; color:var(--ink); }}
-td .pm {{ color:var(--muted); }}
-td.none {{ color:var(--muted); }}
+td .pm {{ color:var(--muted); }} td.none {{ color:var(--muted); }}
 .pill {{ font:600 9.5px/1.5 ui-monospace,monospace; letter-spacing:.06em;
   text-transform:uppercase; color:var(--warn); border:1px solid var(--warn);
   border-radius:3px; padding:0 .3rem; vertical-align:1px; }}
 .call {{ border-left:3px solid var(--accent); background:var(--card);
   padding:1rem 1.15rem; border-radius:0 9px 9px 0; margin:1.4rem 0; }}
 .call.bad {{ border-left-color:var(--bad); }}
-.call b {{ color:var(--ink); }}
-.call p {{ margin:.35rem 0 0; }}
+.call.warn {{ border-left-color:var(--warn); }}
+.call b {{ color:var(--ink); }} .call p {{ margin:.35rem 0 0; }}
 code {{ font:.87em ui-monospace,SFMono-Regular,Menlo,monospace;
   background:var(--card); padding:.1em .35em; border-radius:4px; }}
-ul {{ max-width:44rem; padding-left:1.15rem; }}
-li {{ margin:.35rem 0; }}
+ul {{ max-width:44rem; padding-left:1.15rem; }} li {{ margin:.35rem 0; }}
+del {{ color:var(--muted); text-decoration-color:var(--bad); }}
 footer {{ margin-top:4rem; padding-top:1.2rem; border-top:1px solid var(--line);
   font-size:.82rem; color:var(--muted); }}
 </style>
 
 <div class="wrap">
 <div class="eyebrow">Per-instance inverse simulation · measurement report</div>
-<h1>Nothing in this scene is currently measurable from generated video</h1>
+<h1>Three times, the instrument turned out to be the thing being measured</h1>
 <p class="lede">We stage physics experiments, film them with a video model, and recover
-material parameters by measuring the motion. This report covers the point at which the
-instrument was turned on itself: the estimator was reporting confident numbers for clips
-in which nothing moved.</p>
+material parameters from the motion. Every layer of that pipeline — the estimator, its
+acceptance gate, and the point tracker underneath both — has now been caught reporting
+its own failure as a property of the video. This report is what survived.</p>
 
 <div class="headline">
-  <div><b>{usable} / {nparam}</b><span>parameters measured with an interval tighter
-    than ±25% from more than one take</span></div>
-  <div><b>{n_nomo} / {total}</b><span>takes contained no measurable motion</span></div>
-  <div><b>{n_cont}</b><span>takes contradicted physics outright — a mover that gains
-    speed through impact</span></div>
+  <div><b>{moves} / {total}</b><span>takes do contain motion, measured without a
+    tracker — correcting an earlier claim that most contained none</span></div>
+  <div><b>{degraded} / {total}</b><span>takes where the object stops being the object,
+    a failure no rigid-body parameter can explain</span></div>
+  <div><b>{usable} / {nparam}</b><span>parameters pinned down — but see the caveat on
+    what these still rest on</span></div>
 </div>
 
 <h2><span class="num">01</span>The estimator was manufacturing numbers</h2>
 <p>The retired fitter searched a parameter grid for the value whose hand-weighted motion
 signature best matched the track. A grid always returns a best match; it never asks
 whether the observation constrains anything. Measuring the physics directly asks that
-first.</p>
-<figure><img src="{f_two}" alt="Per-take friction values versus the grid fitter's answer">
+first. This comparison runs both estimators over <em>identical</em> tracks, so it is
+unaffected by everything that follows.</p>
+<figure><img src="{f_two}" alt="Per-take friction versus the grid fitter's answer">
 <figcaption>Each dot is one take's friction, measured from its deceleration. The
-baseball's ten takes span 0.007–0.285. The retired grid fitter reported <b>0.680</b> from
-those same ten takes — outside the range any individual take supports. The apple's
-1.100 was the grid maximum, a railed bound reported as a measurement.</figcaption></figure>
+baseball's ten takes span 0.007–0.285. The retired grid fitter reported <b>0.680</b>
+from those same ten takes — outside the range any individual take supports. The apple's
+1.100 was the grid maximum, a railed bound reported as a measurement.</figcaption>
+</figure>
 
-<h2><span class="num">02</span>Why it went unnoticed: path length integrates noise</h2>
-<p>The old "did it move" guard measured <em>path length</em> — the sum of per-frame
-steps. That accumulates tracking jitter without bound: 49 frames of ±2&nbsp;px noise
-manufactures roughly 100&nbsp;px of apparent travel from a stationary object. Net
-displacement does not accumulate, because noise cancels.</p>
-<div class="call bad"><b>Over 55 collision clips, the ceramic vase's subject never
-displaced more than 21&nbsp;px and the rubber duck never more than 17&nbsp;px</b>
-<p>— against the 23–43&nbsp;px they had to cover to reach their partner. The videos did
-not contain the experiment, and the fits were reading sub-10-pixel jitter.</p></div>
-{'<figure><img src="' + strip + '" alt="Filmstrip of two vase collision clips"><figcaption>Two ceramic-vase &ldquo;collisions&rdquo;, every seventh frame, with the tracked subject (cyan) and partner (magenta). The vase does not move. Both clips previously produced confident fits, 15.8&times; apart.</figcaption></figure>' if strip else ''}
-
-<h2><span class="num">03</span>The rebuilt estimator: measure, don't search</h2>
+<h2><span class="num">02</span>The rebuilt estimator: measure, don't search</h2>
 <p>Each probe is analytically invertible, so nothing is searched:</p>
 <ul>
 <li><b>drop</b> → restitution <code>e = |v_up| / |v_down|</code> — dimensionless</li>
-<li><b>slide</b> → friction <code>μ = |a| / g</code> — the only one needing the px↔m
-  scale</li>
+<li><b>slide</b> → friction <code>μ = |a| / g</code> — the only one needing the px↔m scale</li>
 <li><b>collide</b> → <code>m_target/m_mover = (v_pre − v_post) / v_target</code> —
   scale and frame rate cancel exactly</li>
 </ul>
@@ -305,61 +296,87 @@ not contain the experiment, and the fits were reading sub-10-pixel jitter.</p></
 yields a standard error for free. Uncertainty is propagated rather than guessed, so each
 parameter arrives as a value with an interval — and an interval spanning the plausible
 range <em>is</em> the &ldquo;not identifiable&rdquo; verdict. Every tunable is gone: no
-grids, no feature weights, no scoring variants, no agreement threshold. The
-&ldquo;did it move&rdquo; test became a significance test on the fitted velocity.</p>
-
-<h2><span class="num">04</span>What the scene actually yields</h2>
+grids, no feature weights, no scoring variants, no agreement threshold.</p>
 <div class="tw"><table>
 <thead><tr><th>object</th><th>restitution e</th><th>friction μ</th>
 <th>mass ratio m<sub>t</sub>/m<sub>m</sub></th></tr></thead>
 <tbody>{rows}</tbody></table></div>
 <figure><img src="{f_int}" alt="Interval plot for every parameter">
-<figcaption>Every parameter with its propagated interval. The green band is the
-handbook range for these materials — an <em>expectation</em>, not ground truth: a
-downloaded mesh has no true density. Amber marks a single take, where there is no
-repeatability term and the interval is a lower bound on the real uncertainty. Every
-measured friction sits an order of magnitude below the handbook band, which is the
-rolling-resistance problem noted below.</figcaption></figure>
-<figure><img src="{f_aud}" alt="Take audit by object">
-<figcaption>Of {total} takes, {n_meas} yielded a measurement. The rubber duck is inert in
-every experiment — it never moves in any clip.</figcaption></figure>
+<figcaption>Every parameter with its propagated interval. No handbook comparison is
+drawn: a downloaded mesh has no true density, and the goal is a parameter that
+<em>explains the clip</em>, not one that matches a reference book.</figcaption></figure>
+<div class="call warn"><b>Caveat that outranks the table.</b>
+<p>These values are computed from CoTracker point tracks, and section 03 shows that
+tracking layer is unreliable on these clips. The 0-of-15 result should be read as
+&ldquo;not established&rdquo;, not as &ldquo;proven unmeasurable&rdquo;. Re-deriving
+them on validated tracks is the outstanding work.</p></div>
 
-<div class="call"><b>A probe-design error this exposed.</b>
-<p>The μ ≈ 0.01–0.09 readings are about right for the <b>rolling resistance</b> of a ball
-on wood — which is not the Coulomb μ the simulator consumes. A sphere's deceleration
-cannot measure sliding friction. The slide probe is valid only for objects that actually
-slide, so the baseball and apple need a different experiment or a rolling model.</p></div>
+<h2><span class="num">03</span>The audit that corrected itself</h2>
+<p>An earlier version of this report stated that <del>68 of 93 takes contained no
+measurable motion</del>. That was wrong. It was computed from tracked centroids, and the
+tracker fails on these clips in a way its own diagnostics cannot see: points stay
+&ldquo;visible&rdquo; while sitting on the background, so a duck that visibly fell to the
+table measured 6&nbsp;px of motion. 38% of the takes behind that claim had a suspect
+tracker.</p>
+<p>Re-run with an independent, appearance-based instrument — normalised cross-correlation
+against the object's own patch from frame 0, which reports <em>where</em> it matches and
+<em>how well</em> — the picture inverts:</p>
+<figure><img src="{f_aud}" alt="Audit of every take by probe">
+<figcaption>{moves} of {total} takes move with the asset intact; only {static} are
+genuinely static. The motion was there all along.</figcaption></figure>
 
-<h2><span class="num">05</span>Corrections to earlier reporting</h2>
+<h2><span class="num">04</span>The finding the old audit could not see</h2>
+<p>The appearance channel adds a state that centroid tracking had no way to express: the
+object stops being the object. All {degraded} such takes are the brass pot, which
+transforms mid-clip from a lidded pot into a wide shallow bowl.</p>
+<figure><img src="{f_deg}" alt="Brass pot degrading across two clips">
+<figcaption>The brass pot during a slide (top) and a drop (bottom). This is not a
+tracking artefact — I suspected it was one, given the pot's low-texture specular surface,
+and the frames say otherwise.</figcaption></figure>
+<div class="call bad"><b>No θ explains this.</b>
+<p>A parameter that merely has to produce a <em>plausible</em> physical motion is a
+generous bar, and asset degradation fails it outright: there is no density, friction or
+restitution that turns a pot into a bowl. This is not identifiability and not frame rate.
+It is asset integrity, and it is a different problem from the one we were solving.</p>
+</div>
+
+<h2><span class="num">05</span>Corrections</h2>
 <ul>
-<li><b>60&nbsp;fps was not the diagnosis for mass.</b> The per-take fits were
-individually decisive and mutually contradictory, which is generator non-repeatability,
-not temporal resolution. Frame rate cannot be the binding constraint while half the clips
-contain no motion.</li>
-<li><b>There is no ground truth in this pipeline.</b> Errors were previously quoted
-against &ldquo;true&rdquo; densities that came from a hardcoded table of textbook
-guesses, anchored by a reference value taken from that same table. Downloaded meshes have
-no true density.</li>
-<li><b>Three &ldquo;established&rdquo; friction values did not survive.</b> Direct
-measurement does not reproduce any of them.</li>
+<li><b>&ldquo;The videos do not contain the experiment&rdquo; was an instrument
+artefact.</b> Stated twice, on tracker evidence. {moves} of {total} takes move.</li>
+<li><b>60&nbsp;fps was not the diagnosis for mass</b>, and is no longer proposed as a
+requirement. The per-take fits were individually decisive and mutually contradictory,
+which is generator non-repeatability, not temporal resolution.</li>
+<li><b>There is no ground truth in this pipeline.</b> Errors were once quoted against
+&ldquo;true&rdquo; densities from a hardcoded table of textbook guesses, anchored by a
+value from that same table.</li>
+<li><b>A max-excursion statistic is not a displacement.</b> The first appearance-based
+audit used peak displacement and scored 38&nbsp;px of &ldquo;motion&rdquo; for a vase
+that never left its spot, because it transiently splits into two blobs and re-forms.
+Switching to end-to-end displacement moved six takes from moving to static — the same
+mistake as the original path-length gate, made a second time.</li>
 </ul>
 
-<h2><span class="num">06</span>What this says about the next step</h2>
-<p>The binding constraint is data collection, not estimation. Before designing further
-probes, the generator needs screening: produce a few clips per candidate experiment and
-measure whether the intended object moved at all. Static-equilibrium probes — flotation
-for absolute density against water, a balance beam for mass ratio — would remove both the
-frame-rate sensitivity and the arbitrary density anchor, but they still assume the model
-animates the object, which for the vase and duck it does not.</p>
+<h2><span class="num">06</span>Known limits of the current instrument</h2>
+<ul>
+<li>One clip (<code>rubber_duck_collide_seed0</code>) is classed as moving at 0.55
+object-widths where visual inspection says the duck re-forms rather than translates. The
+appearance tracker cannot fully separate &ldquo;translated&rdquo; from
+&ldquo;re-rendered nearby&rdquo;.</li>
+<li>The audit is calibrated against roughly a dozen clips inspected frame by frame, not
+against all {total}.</li>
+<li>Parameter values still depend on point tracks that have not been re-validated.</li>
+</ul>
 
 <footer>Generated by <code>scripts/make_report.py</code> from
-<code>outputs/scene/fulllab/simple_fit.json</code>. Full chronology, including every
-retraction, in <code>docs/PROJECT_LOG.md</code> (M39).</footer>
+<code>simple_fit.json</code> and <code>audit_pixel.json</code>. Full chronology,
+including every retraction, in <code>docs/PROJECT_LOG.md</code>.</footer>
 </div>
 """
     OUT.write_text(html)
     print(f"wrote {OUT}  ({len(html)/1024:.0f} KB)")
-    print(f"  {usable}/{nparam} parameters usable, {n_meas}/{total} takes yielded a value")
+    print(f"  audit: {moves} moves / {static} static / {degraded} degraded of {total}")
+    print(f"  params: {usable}/{nparam} usable")
     return 0
 
 

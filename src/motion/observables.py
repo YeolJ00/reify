@@ -100,6 +100,29 @@ def _direction(xy, ok):
     return d / n if n > 1e-6 else np.array([1.0, 0.0])
 
 
+def net_travel(xy):
+    """Net displacement between first and last tracked sample, in pixels.
+
+    Net, never path length: path length sums |dx| every frame and so accumulates
+    tracking jitter without bound (49 frames of +-2px manufactures ~100px of
+    'travel' from a stationary object). Noise cancels in a net displacement.
+    """
+    P = _finite(xy)
+    return float(np.hypot(*(P[-1] - P[0]))) if len(P) >= 2 else 0.0
+
+
+def max_excursion(xy):
+    """Largest displacement from the start -- catches an object that moved out and
+    came back, which net displacement alone would score as zero."""
+    P = _finite(xy)
+    return float(np.hypot(*(P - P[0]).T).max()) if len(P) >= 2 else 0.0
+
+
+def _finite(xy):
+    xy = np.asarray(xy, float)
+    return xy[~np.isnan(xy[:, 0]) & ~np.isnan(xy[:, 1])]
+
+
 def _ratio_se(a, sa, b, sb):
     """Standard error of a/b by first-order propagation."""
     if abs(b) < 1e-9:

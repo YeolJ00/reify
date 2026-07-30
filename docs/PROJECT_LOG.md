@@ -1608,3 +1608,74 @@ probes: for each candidate, generate a few clips and measure *did the intended t
 Static-equilibrium probes (flotation for absolute density against water, a balance beam for
 mass ratio) remove both the frame-rate sensitivity and the arbitrary density anchor — but
 they assume the model animates the object at all, which for the vase and duck it does not.
+
+---
+
+## M40 — screening the generator, and a correction to M39's central number
+
+**M39 claimed "68 of 93 takes contained no measurable motion". That is withdrawn.**
+An independent instrument puts it at **8 of 93**. The motion was there; the tracker was
+not.
+
+**The screen.** Before designing new probes we screened the generator: same requested
+motion, four stagings, 36 clips (`scripts/blender_screen.py`, `gen_screen.py`). The
+hypothesis was that the initial frame must depict NON-EQUILIBRIUM -- drops worked
+(object staged airborne, falling is inevitable from the pixels) while slides and
+collisions did not (object at rest on a table, nothing implies motion). `rest` and
+`urgent` shared a byte-identical frame so any difference would be purely the prompt.
+
+    equilibrium      (rest, urgent)      18/18 clips moved
+    non-equilibrium  (airborne, tipped)  18/18 clips moved
+
+**Hypothesis refuted.** Staging the object mid-air changes nothing, and every one of the
+36 clips shows substantial pixel change. The ceramic vase changes 9.5% of its pixels
+against the baseball's 1.3% while barely translating: the model RE-RENDERS the object
+rather than moving it rigidly. Cosmos is not refusing to animate.
+
+**Then the screen's own instrument failed.** It measured CoTracker centroids. 11 of 12
+baseball clips had points off-frame most of the time, and a duck clip in which the duck
+visibly falls to the table reported 6 px of motion because the points stayed in mid-air.
+Point visibility cannot detect this -- the points really are visible, just not on the
+object -- so the failure is invisible in the tracker's own diagnostics. 38% of the main
+lab's 93 takes fail the same health check.
+
+**Re-audit with an appearance-based instrument** (`src/motion/patch_track.py`, NCC
+against the object's own frame-0 patch; `scripts/audit_pixel.py`). It reports both WHERE
+the patch matches and HOW WELL, and the second number is what centroid tracking never
+had:
+
+    MOVES     71/93  (76%)   displacement with the asset intact
+    STATIC     8/93  ( 9%)   genuinely nothing happened
+    DEGRADED  14/93  (15%)   the object stopped being the object
+
+**New failure mode: asset degradation.** All 14 DEGRADED takes are the brass pot, which
+transforms mid-clip from a lidded pot into a wide shallow bowl. I first suspected an
+artifact of its low-texture specular surface; the frames say otherwise. Under the standing
+framing -- any parameter that produces a PLAUSIBLE physical motion will do -- this fails
+outright: no density, friction or restitution turns a pot into a bowl. It is not
+identifiability and not frame rate, it is asset integrity, and it is a different problem
+from the one being solved.
+
+**A mistake made twice.** The first appearance-based audit used PEAK displacement and
+scored 38 px of "motion" for a vase that never leaves its spot, because it transiently
+splits into two blobs and re-forms. End-to-end displacement in object-widths moved six
+takes from MOVES to STATIC. This is exactly the M39 path-length lesson -- a statistic
+that accumulates transients is not a displacement -- repeated in the replacement.
+
+**What still stands from M39.** The estimator comparison: the retired grid fitter
+reported friction 0.680 "established" where the ten individual takes span 0.007-0.285.
+That ran both estimators over IDENTICAL tracks, so no tracking problem affects it.
+
+**What is now weaker.** The 0-of-15 parameter result is computed from the same point
+tracks the audit found unreliable. It should be read as "not established", not as
+"proven unmeasurable". Re-deriving parameters on validated tracks is the outstanding work.
+
+**Retired:** the >= 60 fps vendor requirement. Frame rate cannot be the binding
+constraint while the instrument is this noisy, and per the standing framing there is no
+ground truth to be accurate against -- a plausible parameter that explains the clip is
+the bar.
+
+**Known limits.** `rubber_duck_collide_seed0` classes as moving (0.55 object-widths)
+where visual inspection says it re-forms rather than translates; NCC cannot fully
+separate "translated" from "re-rendered nearby". The audit is calibrated against ~12
+clips inspected frame by frame, not all 93.

@@ -12,6 +12,7 @@ Extracted unchanged from the retired grid fitter; only the estimator was replace
 """
 import glob
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +21,9 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-LAB = REPO / "outputs" / "scene" / "fulllab"
+# LAB=<dir> retargets both steps at another lab (e.g. the generator screen), so the
+# seeding and tracking code is shared rather than copied per experiment set
+LAB = Path(os.environ.get("LAB") or (REPO / "outputs" / "scene" / "fulllab"))
 
 
 def write_seeds():
