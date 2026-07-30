@@ -42,9 +42,20 @@ PROBE = {"drop": ("restitution", "e", "restitution"),
          "collide": ("mass ratio", "m_t/m_m", "mass_ratio")}
 
 
-def track_one(frames, seed):
-    return track_patch(frames, seed["u"], seed["v"],
-                       half=max(seed["size_px"] * 0.45, 10), search=SEARCH)
+def track_one(frames, seed, cache=None):
+    """Patch-track, caching to disk: tracking all 93 clips takes minutes, and every
+    downstream question (why did this take fail? what does a new observable say?)
+    otherwise pays that cost again."""
+    if cache is not None and cache.exists():
+        d = np.load(cache)
+        return {k: d[k] for k in d.files} | {
+            "net_px": float(d["net_px"]), "end_px": float(d["end_px"]),
+            "ncc_median": float(d["ncc_median"]), "ncc_end": float(d["ncc_end"])}
+    r = track_patch(frames, seed["u"], seed["v"],
+                    half=max(seed["size_px"] * 0.45, 10), search=SEARCH)
+    if r is not None and cache is not None:
+        np.savez_compressed(cache, **{k: np.asarray(v) for k, v in r.items()})
+    return r
 
 
 def cen_of(r):
@@ -79,14 +90,21 @@ def main():
         if not s:
             continue
         for f in sorted(LAB.glob(f"vid_{key}_seed*.npz")):
-            fr = np.load(f)["frames"]
-            r = track_one(fr, s)
+            stem = f.stem.replace("vid_", "")
+            cs = LAB / f"ptrk_{stem}_subject.npz"
+            cp = LAB / f"ptrk_{stem}_partner.npz"
+            fr = None
+            if not cs.exists():
+                fr = np.load(f)["frames"]
+            r = track_one(fr, s, cs)
             if r is None:
                 continue
             p = None
             ps = seeds[key].get("partner")
             if e["kind"] == "collide" and ps is not None:
-                p = track_one(fr, ps)
+                if fr is None and not cp.exists():
+                    fr = np.load(f)["frames"]
+                p = track_one(fr, ps, cp)
             degraded = (r["ncc_median"] < NCC_OK or r["ncc_end"] < NCC_OK)
             moved = (r["end_px"] / max(s["size_px"], 1e-6)) >= MOVE_WIDTHS
             if not degraded and not moved:
@@ -104,7 +122,7 @@ def main():
     print(f"using {OB.SIGMA_FLOOR_PX:.2f} px\n")
 
     # ---- pass 2: parameters
-    out, dropped = {}, {"degraded": 0, "static": 0, "no_obs": 0, "contra": 0}
+    out, dropped, reasons = {}, {"degraded": 0, "static": 0, "no_obs": 0, "contra": 0}, []
     for name, t in sorted(tracks.items()):
         subj, kind = t["subj"], t["kind"]
         bucket = out.setdefault(subj, {}).setdefault(kind, {"v": [], "s": []})
@@ -121,6 +139,7 @@ def main():
                  else collide_observables(cen, cen_of(t["p"])))
         if not o.get("ok"):
             dropped["no_obs"] += 1
+            reasons.append((name, kind, o.get("why", "?")))
             continue
         if not admissible(PROBE[kind][2], o["value"]):
             dropped["contra"] += 1
@@ -128,7 +147,14 @@ def main():
         bucket["v"].append(o["value"]); bucket["s"].append(o["se"])
 
     print(f"takes dropped: {dropped['degraded']} degraded, "
-          f"{dropped['no_obs']} no observable, {dropped['contra']} contradicted physics\n")
+          f"{dropped['no_obs']} no observable, {dropped['contra']} contradicted physics")
+    if reasons:
+        import collections, re as _re
+        norm = [(_re.sub(r"[-+]?\d*\.?\d+", "N", w), k) for _n, k, w in reasons]
+        print("\n  why the 'no observable' takes fail:")
+        for (w, k), c in collections.Counter(norm).most_common(10):
+            print(f"    {c:3d}x [{k:7s}] {w}")
+    print()
 
     res = {}
     for subj, per in out.items():

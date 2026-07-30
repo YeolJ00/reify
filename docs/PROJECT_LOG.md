@@ -1731,3 +1731,40 @@ flagged in M40 as re-forming rather than translating. The brass pot's two are si
 after 14 of its clips were dropped.
 
 Report regenerated; the comparison figure shows both tracking layers side by side.
+
+---
+
+## M42 — where the wasted takes go, and the expanded lab
+
+**Diagnosed the 50 "moves but yields nothing" takes before spending GPU on more of them.**
+Track caching added to `rederive.py` so this class of question is free from now on.
+
+    20x [collide] mover was not approaching
+    17x [collide] target never moved
+     5x [collide] target did not depart
+     4x [drop   ] no fall
+     4x [slide  ] never moved
+
+**42 of the 50 are collisions.** Yield by probe: collide ~24%, drop and slide ~80%. So
+generating more of the same collide clips mostly buys more failures, and the same GPU
+hours buy roughly three times the data on the probes that work.
+
+**Expanded lab** (`blender_expand.py`, `gen_expand.py`): all seven scene objects -- the
+wooden bowl and the book have never been probed -- at three drop heights plus a slide.
+28 experiments x 6 seeds = 168 clips. Collide is deliberately absent.
+
+**New parameter: e(v).** Restitution is not one number; for real materials it falls as
+impact speed rises. Three heights (0.08 / 0.18 / 0.30 m, spanning ~1.25 to ~2.4 m/s)
+turn the best-yielding probe into a measurement of
+
+    e0     restitution extrapolated to zero impact speed
+    de/dv  its change per m/s of impact speed
+
+and simultaneously triple the samples behind each object's e. The impact speed is
+MEASURED from the track, not assumed from the staged height -- the video model does not
+promise to obey g, so a height that produced no visible fall contributes nothing rather
+than contributing a wrong x-value.
+
+Fitting is a weighted straight line through (v_impact, e) with each take weighted by its
+own error bar; the slope's interval says whether these clips resolve any speed dependence
+at all.
