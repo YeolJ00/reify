@@ -138,6 +138,51 @@ def fig_intervals(d):
     return embed(fig)
 
 
+def fig_compare(old, new):
+    """Same estimator, two tracking layers -- point tracks vs appearance tracks."""
+    pairs = []
+    for o in sorted(set(old) | set(new)):
+        for kind, nm, sym, _r in PARAMS:
+            a = (old.get(o) or {}).get(kind) or {}
+            b = (new.get(o) or {}).get(kind) or {}
+            if a.get("value") is None and not b:
+                continue
+            pairs.append((f"{NICE.get(o,o)} · {nm}", a.get("value"),
+                          a.get("interval"), (b or {}).get("value"),
+                          (b or {}).get("interval")))
+    fig, ax = plt.subplots(figsize=(8.6, 0.42 * len(pairs) + 1.5))
+    style(ax)
+    for i, (lab, ov, oi, nv, ni) in enumerate(pairs):
+        if ov is not None:
+            ax.errorbar([ov], [i - 0.14], xerr=[[min(oi, ov)], [oi]], fmt="o", ms=5.5,
+                        color=MUTED, ecolor=MUTED, elinewidth=1.4, capsize=3, zorder=3)
+        if nv is not None:
+            ax.errorbar([nv], [i + 0.14], xerr=[[min(ni, nv)], [ni]], fmt="D", ms=5.5,
+                        color=CYAN, ecolor=CYAN, elinewidth=1.6, capsize=3, zorder=4)
+        if ov is not None and nv is not None:
+            ax.plot([ov, nv], [i - 0.14, i + 0.14], color=LINE, lw=0.9, zorder=2)
+    ax.set_yticks(range(len(pairs)))
+    ax.set_yticklabels([p[0] for p in pairs], fontsize=8)
+    ax.set_ylim(len(pairs) - 0.4, -0.6)
+    # x range from the data: the brass pot's mass ratio ran off a hard-coded limit
+    hi = max([(v or 0) + (e or 0) for _l, a, b, v, e in
+              [(p[0], p[1], p[2], p[3], p[4]) for p in pairs]] +
+             [(a or 0) + (b or 0) for _l, a, b, _v, _e in
+              [(p[0], p[1], p[2], p[3], p[4]) for p in pairs]])
+    ax.set_xlim(-0.05, hi * 1.06)
+    ax.set_xlabel("parameter value (units differ by row; compare within a row only)",
+                  color=MUTED, fontsize=8.5)
+    # proxy handles: attaching labels to the first row failed silently, because that row
+    # has no point-track value and so never drew the grey series
+    ax.errorbar([], [], xerr=[[0]], fmt="o", ms=5.5, color=MUTED, ecolor=MUTED,
+                label="point tracks (CoTracker)")
+    ax.errorbar([], [], xerr=[[0]], fmt="D", ms=5.5, color=CYAN, ecolor=CYAN,
+                label="appearance tracks (NCC)")
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=2,
+              loc="lower left", bbox_to_anchor=(0.0, 1.02))
+    return embed(fig)
+
+
 def fig_degraded():
     """The brass pot ceasing to be a brass pot -- the finding the old audit could not see."""
     picks = [("brass_pot_slide_seed0", "slide"), ("brass_pot_drop_seed2", "drop")]
@@ -162,25 +207,30 @@ def fig_degraded():
 
 
 def main():
-    d = json.loads((LAB / "simple_fit.json").read_text())
+    d = json.loads((LAB / "simple_fit.json").read_text())      # point tracks
+    nw = json.loads((LAB / "rederived.json").read_text())       # appearance tracks
     a = json.loads((LAB / "audit_pixel.json").read_text())
     c = a["counts"]
     total = sum(c.values())
     moves, static, degraded = c.get("MOVES", 0), c.get("STATIC", 0), c.get("DEGRADED", 0)
 
-    f_two, f_aud, f_int, f_deg = (fig_two_estimators(d), fig_audit(a),
-                                  fig_intervals(d), fig_degraded())
-    nparam = sum(len(o) for o in d.values())
-    usable = sum(1 for o in d.values() for r in o.values()
-                 if r.get("value") is not None
-                 and str(r.get("verdict", "")).startswith("usable"))
+    f_two, f_aud, f_cmp, f_deg = (fig_two_estimators(d), fig_audit(a),
+                                  fig_compare(d, nw), fig_degraded())
+    f_int = fig_intervals(nw)
+    nparam = 15
+    got = sum(1 for o in nw.values() for r in o.values() if r)
+    usable = sum(1 for o in nw.values() for r in o.values()
+                 if r and not r.get("single_take")
+                 and r["interval"] / max(abs(r["value"]), 1e-9) < 0.25)
+    got_old = sum(1 for o in d.values() for r in o.values()
+                  if r.get("value") is not None)
 
     rows = ""
-    for o in d:
+    for o in sorted(nw):
         cells = ""
         for kind, _n, _s, _r in PARAMS:
-            r = d[o].get(kind) or {}
-            if r.get("value") is None:
+            r = (nw.get(o) or {}).get(kind)
+            if not r:
                 cells += '<td class="none">—</td>'
             else:
                 tag = ' <span class="pill">1 take</span>' if r.get("single_take") else ""
@@ -267,8 +317,8 @@ its own failure as a property of the video. This report is what survived.</p>
     tracker — correcting an earlier claim that most contained none</span></div>
   <div><b>{degraded} / {total}</b><span>takes where the object stops being the object,
     a failure no rigid-body parameter can explain</span></div>
-  <div><b>{usable} / {nparam}</b><span>parameters pinned down — but see the caveat on
-    what these still rest on</span></div>
+  <div><b>{got} / {nparam}</b><span>parameters now yield a value, up from {got_old}
+    once the unreliable tracking layer was replaced — though none is yet tight</span></div>
 </div>
 
 <h2><span class="num">01</span>The estimator was manufacturing numbers</h2>
@@ -305,13 +355,31 @@ grids, no feature weights, no scoring variants, no agreement threshold.</p>
 <figcaption>Every parameter with its propagated interval. No handbook comparison is
 drawn: a downloaded mesh has no true density, and the goal is a parameter that
 <em>explains the clip</em>, not one that matches a reference book.</figcaption></figure>
-<div class="call warn"><b>Caveat that outranks the table.</b>
-<p>These values are computed from CoTracker point tracks, and section 03 shows that
-tracking layer is unreliable on these clips. The 0-of-15 result should be read as
-&ldquo;not established&rdquo;, not as &ldquo;proven unmeasurable&rdquo;. Re-deriving
-them on validated tracks is the outstanding work.</p></div>
+<div class="call warn"><b>{usable} of {nparam} are tighter than ±25% from more than one
+take.</b>
+<p>Coverage improved a great deal; precision did not. The closest are the baseball's
+restitution at ±28% and the vase's at ±32%. Read the table as &ldquo;not yet
+established&rdquo;, not as a set of measurements.</p></div>
 
-<h2><span class="num">03</span>The audit that corrected itself</h2>
+<h2><span class="num">03</span>What changed when the tracking layer was replaced</h2>
+<p>The values above come from appearance tracking. An earlier version of this report
+published values from CoTracker point tracks, which section 04 shows to be unreliable on
+these clips. Same estimator, same clips, different tracking layer:</p>
+<figure><img src="{f_cmp}" alt="Point-track versus appearance-track parameter values">
+<figcaption>Grey circles are the published point-track values, cyan diamonds the
+appearance-track ones. Units differ per row, so only compare within a row.</figcaption>
+</figure>
+<div class="call bad"><b>The published restitution for the baseball was 0.000 — no bounce
+at all. It is 0.215 ± 0.060.</b>
+<p>The point tracker was missing the rebound outright, so that row was wrong rather than
+merely imprecise. Coverage went from {got_old} of {nparam} parameters to {got}: the rubber
+duck yielded nothing whatsoever before and now yields all three.</p></div>
+<p>The tracker noise floor is now <b>measured rather than assumed</b>, from the residual
+scatter of the takes in which nothing moves — clips that contain only noise by
+construction. It is <b>2.04&nbsp;px</b> against the 1.50&nbsp;px previously assumed, so
+every earlier error bar was understated by about a third.</p>
+
+<h2><span class="num">04</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
 measurable motion</del>. That was wrong. It was computed from tracked centroids, and the
 tracker fails on these clips in a way its own diagnostics cannot see: points stay
@@ -325,7 +393,7 @@ against the object's own patch from frame 0, which reports <em>where</em> it mat
 <figcaption>{moves} of {total} takes move with the asset intact; only {static} are
 genuinely static. The motion was there all along.</figcaption></figure>
 
-<h2><span class="num">04</span>The finding the old audit could not see</h2>
+<h2><span class="num">05</span>The finding the old audit could not see</h2>
 <p>The appearance channel adds a state that centroid tracking had no way to express: the
 object stops being the object. All {degraded} such takes are the brass pot, which
 transforms mid-clip from a lidded pot into a wide shallow bowl.</p>
@@ -340,10 +408,12 @@ restitution that turns a pot into a bowl. This is not identifiability and not fr
 It is asset integrity, and it is a different problem from the one we were solving.</p>
 </div>
 
-<h2><span class="num">05</span>Corrections</h2>
+<h2><span class="num">06</span>Corrections</h2>
 <ul>
 <li><b>&ldquo;The videos do not contain the experiment&rdquo; was an instrument
 artefact.</b> Stated twice, on tracker evidence. {moves} of {total} takes move.</li>
+<li><b>The noise floor was assumed, and assumed too low</b> (1.50&nbsp;px against a
+measured 2.04&nbsp;px), so every published interval was too narrow.</li>
 <li><b>60&nbsp;fps was not the diagnosis for mass</b>, and is no longer proposed as a
 requirement. The per-take fits were individually decisive and mutually contradictory,
 which is generator non-repeatability, not temporal resolution.</li>
@@ -357,7 +427,7 @@ Switching to end-to-end displacement moved six takes from moving to static — t
 mistake as the original path-length gate, made a second time.</li>
 </ul>
 
-<h2><span class="num">06</span>Known limits of the current instrument</h2>
+<h2><span class="num">07</span>Known limits of the current instrument</h2>
 <ul>
 <li>One clip (<code>rubber_duck_collide_seed0</code>) is classed as moving at 0.55
 object-widths where visual inspection says the duck re-forms rather than translates. The
@@ -365,7 +435,14 @@ appearance tracker cannot fully separate &ldquo;translated&rdquo; from
 &ldquo;re-rendered nearby&rdquo;.</li>
 <li>The audit is calibrated against roughly a dozen clips inspected frame by frame, not
 against all {total}.</li>
-<li>Parameter values still depend on point tracks that have not been re-validated.</li>
+<li>The rubber duck's three new values come from exactly the clips flagged above — it
+re-forms rather than translating — so they are the least trustworthy rows in the table
+despite being the largest coverage gain.</li>
+<li>The brass pot's surviving values are single takes, after 14 of its clips were dropped
+as degraded, so they carry no repeatability term at all.</li>
+<li>50 takes classified as moving still yield no extractable observable: the object moves
+but the specific event (a landing, a departure after impact) is not recoverable. That is
+now the dominant loss and has not been characterised.</li>
 </ul>
 
 <footer>Generated by <code>scripts/make_report.py</code> from
@@ -376,7 +453,7 @@ including every retraction, in <code>docs/PROJECT_LOG.md</code>.</footer>
     OUT.write_text(html)
     print(f"wrote {OUT}  ({len(html)/1024:.0f} KB)")
     print(f"  audit: {moves} moves / {static} static / {degraded} degraded of {total}")
-    print(f"  params: {usable}/{nparam} usable")
+    print(f"  params: {got}/{nparam} yield a value (was {got_old}); {usable} tight")
     return 0
 
 

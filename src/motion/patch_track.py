@@ -29,6 +29,21 @@ import cv2
 import numpy as np
 
 
+def _parabola(a, b, c):
+    """Offset of a parabola's vertex through three equally spaced samples."""
+    den = a - 2.0 * b + c
+    if abs(den) < 1e-9:
+        return 0.0
+    return float(np.clip(0.5 * (a - c) / den, -1.0, 1.0))
+
+
+def _subpixel(res, x, y):
+    h, w = res.shape
+    ox = _parabola(res[y, x - 1], res[y, x], res[y, x + 1]) if 0 < x < w - 1 else 0.0
+    oy = _parabola(res[y - 1, x], res[y, x], res[y + 1, x]) if 0 < y < h - 1 else 0.0
+    return ox, oy
+
+
 def track_patch(frames, u, v, half, search=None, ref_frame=0):
     """Match a patch from `ref_frame` in every frame by NCC.
 
@@ -67,8 +82,13 @@ def track_patch(frames, u, v, half, search=None, ref_frame=0):
             continue
         res = cv2.matchTemplate(sub, tpl, cv2.TM_CCOEFF_NORMED)
         _mn, mx, _ml, ml = cv2.minMaxLoc(res)
-        bx = sx0 + ml[0] + tpl.shape[1] / 2.0
-        by = sy0 + ml[1] + tpl.shape[0] / 2.0
+        # SUBPIXEL: matchTemplate peaks on the integer grid, but every parameter here is
+        # a velocity fitted over ~5 frames, so +-0.5px of quantisation is the same size
+        # as the real tracking noise. A parabola through the peak and its two neighbours
+        # recovers the fractional offset in each axis.
+        ox, oy = _subpixel(res, ml[0], ml[1])
+        bx = sx0 + ml[0] + ox + tpl.shape[1] / 2.0
+        by = sy0 + ml[1] + oy + tpl.shape[0] / 2.0
         cu[t] = bx; cv_[t] = by; peak[t] = mx
         last = (bx, by)
 

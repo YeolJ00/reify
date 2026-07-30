@@ -1679,3 +1679,55 @@ the bar.
 where visual inspection says it re-forms rather than translates; NCC cannot fully
 separate "translated" from "re-rendered nearby". The audit is calibrated against ~12
 clips inspected frame by frame, not all 93.
+
+---
+
+## M41 — parameters re-derived on appearance tracks
+
+M40 left the parameter table resting on the point tracks it had just discredited.
+Re-derived from NCC patch tracks (`scripts/rederive.py`), dropping DEGRADED takes since
+no rigid-body theta explains an object that stops being itself.
+
+**Subpixel refinement added** to `patch_track`. `cv2.matchTemplate` peaks on the integer
+grid, and every parameter here is a velocity fitted over ~5 frames, so +-0.5 px of
+quantisation is the same size as the real tracking noise. A parabola through the peak and
+its neighbours recovers the fraction. Validated on a synthetic translating square:
+recovered 2.380 px/frame against a true 2.400, per-frame scatter 0.29 px.
+
+**The noise floor is now measured, not assumed.** The takes in which nothing moves contain
+only noise by construction, so their residual scatter calibrates every other clip:
+**2.04 px**, against the 1.50 px previously assumed. Every earlier error bar was
+understated by about a third.
+
+**Coverage 6 -> 11 of 15 parameters.** The rubber duck yielded nothing at all before and
+now yields all three.
+
+    object        probe     point tracks (published)   appearance tracks
+    baseball      drop      0.000 +- 0.039  (n=3)      0.215 +- 0.060  (n=2)
+    baseball      slide     0.014 +- 0.032  (n=10)     0.009 +- 0.047  (n=10)
+    apple         slide     0.014 +- 0.004  (n=2)      0.004 +- 0.002  (n=1)
+    brass_pot     drop      0.050 +- 0.084  (n=2)      0.166 +- 0.202  (n=1)
+    brass_pot     collide   0.508 +- 0.472  (n=2)      1.441 +- 0.508  (n=1)
+    ceramic_vase  slide     0.007 +- 0.000  (n=1)      0.039 +- 0.022  (n=3)
+    ceramic_vase  drop      —                          0.123 +- 0.039  (n=2)
+    rubber_duck   drop      —                          0.116 +- 0.099  (n=2)
+    rubber_duck   slide     —                          0.080 +- 0.036  (n=2)
+    rubber_duck   collide   —                          0.676 +- 0.295  (n=1)
+
+**The published baseball restitution was 0.000 -- no bounce at all -- against 0.215.**
+The point tracker was missing the rebound outright, so that row was WRONG, not merely
+imprecise.
+
+**Precision did not improve: 0 of 15 are tighter than +-25% from more than one take.**
+Closest are baseball restitution (+-28%) and vase restitution (+-32%).
+
+**Where the takes go now:** 14 degraded, 3 contradicted physics, and **50 classified as
+moving but yielding no extractable observable** -- the object moves, but the specific
+event (a landing, a departure after impact) is not recoverable. That is the dominant loss
+and is uncharacterised.
+
+**Least trustworthy rows.** The rubber duck's three values come from exactly the clips
+flagged in M40 as re-forming rather than translating. The brass pot's two are single takes
+after 14 of its clips were dropped.
+
+Report regenerated; the comparison figure shows both tracking layers side by side.
