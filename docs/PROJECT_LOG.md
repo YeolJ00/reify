@@ -1768,3 +1768,60 @@ than contributing a wrong x-value.
 Fitting is a weighted straight line through (v_impact, e) with each take weighted by its
 own error bar; the slope's interval says whether these clips resolve any speed dependence
 at all.
+
+---
+
+## M43 — the expansion pays off: three parameters clear the precision bar
+
+168 clips, 7 objects, 3 drop heights + slide. **Three parameters now measured to better
+than +-25% from more than one take, against zero before.**
+
+    ceramic_vase restitution   0.094 +- 0.014   (15%)
+    rubber_duck  restitution   0.125 +- 0.027   (22%)
+    wooden_bowl  friction      0.317 +- 0.076   (24%)
+
+The wooden bowl's friction is also the first value that lands in the textbook range for
+wood on wood (0.3-0.6) rather than an order of magnitude below it. That is consistent
+with the M39 rolling-vs-sliding finding: the bowl is flat-bottomed and actually SLIDES,
+whereas the sphere-shaped objects roll, and a rolling object's deceleration measures
+rolling resistance rather than the Coulomb mu the simulator consumes. Probe validity
+depends on object shape, and the bowl is the first object for which the slide probe is
+the right experiment.
+
+Full table (e at the centre of the measured speed range; de/dv per m/s):
+
+    object          n     e at mid speed          de/dv        friction mu     v_mid
+    apple           7    0.004 +- 0.005   -0.012 +- 0.008   0.026 +- 0.012   2.85 m/s
+    baseball        6    0.082 +- 0.023   +0.517 +- 0.080   0.001 +- 0.024   1.09 m/s
+    book            0            —                —          0.017 +- 0.182
+    brass_pot       2            —                —          0.079 +- 0.027
+    ceramic_vase   12    0.094 +- 0.014   +0.034 +- 0.038   0.008 +- 0.026   0.98 m/s
+    rubber_duck     4    0.125 +- 0.027   -0.849 +- 0.218   0.029 +- 0.059   0.66 m/s
+    wooden_bowl     6    0.057 +- 0.044   +0.188 +- 0.429   0.317 +- 0.076   0.51 m/s
+
+**MY YIELD ESTIMATE WAS WRONG.** M42 justified dropping collide by claiming drop and
+slide yield ~80%. Actual drop yield here is **29%** (low 33%, mid 36%, high 19%). The
+error: I read "MOVES" from the M40 audit as "yields a usable observable", and they are
+different questions -- an object can move without the specific event being extractable.
+Dropping collide was still right (24% and falling), but for a weaker reason than stated.
+
+**"No fall" is the dominant failure at every height** -- 60 of ~89 drop failures. The
+object does not visibly fall even when staged 30 cm in the air. This qualifies the M40
+screen conclusion that airborne objects do fall: they do, in roughly half of clips.
+
+**Height matters, and higher is worse:** 19% at 0.30 m against 36% at 0.18 m, with 12
+degraded takes at the high setting against 4 at mid. Staging an object further from its
+rendered context makes the model more likely to re-render it rather than move it.
+
+**The book is a failed probe object: 0 of 18 drops usable** (7 no fall, 6 degraded, 5
+with e > 1, up to 3.70). A flat slab tumbles when dropped, and a tumbling object lifts
+its own tracked centroid, which reads as a rebound larger than the fall. The book needs a
+different probe or an orientation-aware tracker.
+
+**A prediction I said I would check, and could not.** I predicted the baseball's
+physically-backwards de/dv = +0.517 would flip sign or lose significance with the full
+data. It did neither -- but only because the baseball's drop clips were already complete
+at the 45-clip partial run, so the fit is over the identical 6 takes. The prediction was
+never actually tested. Of the two slopes that are resolved, the duck's -0.849 has the
+physically expected sign (restitution falls with impact speed) and the baseball's does
+not.

@@ -154,6 +154,21 @@ def main():
            if "slope" in r and abs(r["slope"]) > 2 * r["slope_se"]]
     print(f"resolved for {len(sig)} of {len(res)} objects"
           + (f": {', '.join(sig)}" if sig else ""))
+    print("\nparameters measured to better than +-25% from more than one take:")
+    tight = []
+    for subj, r in res.items():
+        if "e_mid" in r and r["n_drop"] > 1 and r["e_mid"] > 0 \
+                and r["e_mid_se"] / r["e_mid"] < 0.25:
+            tight.append((f"{subj} restitution", r["e_mid"], r["e_mid_se"]))
+        c = r.get("friction")
+        if c and c["n"] > 1 and c["value"] > 0 and c["interval"] / c["value"] < 0.25:
+            tight.append((f"{subj} friction", c["value"], c["interval"]))
+    for nm, v, e in tight:
+        print(f"  {nm:26s} {v:.3f} ± {e:.3f}   ({100*e/v:.0f}%)")
+    if not tight:
+        print("  none")
+    print(f"  -> {len(tight)} parameters, against 0 before the expansion")
+
     bad = [s for s, r in res.items() if r.get("physical") is False]
     if bad:
         print(f"! e outside [0,1] for {', '.join(bad)} — not a measurement")
