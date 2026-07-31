@@ -1946,3 +1946,65 @@ calibrate the other.
 0.033, simulated 0.032) and the rubber duck's is not (measured 0.025, simulator floors at
 0.261). Worth stating plainly: the vase also "matched" at the old, wrong value of 0.094.
 A matching simulation confirms a parameter is REALISABLE, not that it is RIGHT.
+
+---
+
+## M46 — the simulator was holding the objects on their sides
+
+Chasing the user's report that the simulated GIF was "all mixed up" ended in a question
+that cut through everything: *why do you even have masks?*
+
+**The masks existed only because the simulated video was faked.** The object was cut out
+of a photograph with a mask and pasted wherever the rollout put it. Nothing in the physics
+or the measurement needs a mask, and every visual defect was one failing to match the
+object's shape -- an ellipse too small for a tall vase (top and bottom left floating, the
+mid-band falling as a "shadow"), an ellipse against a bulb-with-neck (neck faded out, smear
+left behind), two overlapping instances cut out together (dark blob, shadow trapezoid).
+Four rounds of fixes, each revealing the next artefact: the signature of a wrong approach.
+
+**Rendering the actual simulated mesh exposed the real bug in one frame.** The vase came
+out lying on its side.
+
+    glTF is Y-up by specification. Blender's importer converts to Z-up on load;
+    trimesh does not, and load_asset never applied the rotation.
+
+    object          simulated footprint   simulated height   actual
+    ceramic vase       12.6 x 26.5 cm         13.1 cm        12.6 x 12.6, 24.8 tall
+    wooden bowl        19.3 x  5.7 cm         19.1 cm        19.4 x 19.2,  5.8 tall
+    rubber duck        13.3 x 17.5 cm         18.4 cm        correct by luck
+
+The vase had been falling on its side and the bowl standing on its rim for the entire
+project. Sphere covers, resting heights and all contact geometry were built from the wrong
+pose, so **every simulation-side result predating this fix is void** -- including M44's
+"the vase's drop is reproduced" and the duck's "not realisable" floor of 0.194.
+
+Measurements are unaffected: restitution and friction are read from tracked pixel motion
+and never touch the mesh. The vase's e = 0.033 +- 0.008 and mu = 0.026 +- 0.006 stand.
+
+**The compositing hack did not merely look wrong -- it CONCEALED this bug.** The fake pane
+pasted a photograph of an upright vase, so the simulator's sideways one was never visible.
+The user pushed on a cosmetic-looking defect three times and it turned out to be
+load-bearing.
+
+**After the fix** (`load_asset(..., up_convert=True)`, 6 of 7 objects now match their scene
+dimensions; the vase is 26.5 cm against a recorded 24.8, a 7% size difference that is
+separate from the orientation bug):
+
+    ceramic_vase drop   e measured 0.033, simulated 0.036   rebound agrees
+    rubber_duck  drop   e measured 0.025, simulated 0.000   still not reproduced
+
+The vase render now starts upright and TOPPLES on landing while the generated clip keeps it
+standing. The rebound magnitudes agree; the post-impact behaviour does not. A tall narrow
+vase toppling from 18 cm is not obviously wrong, and Cosmos holding it perfectly upright is
+not obviously right -- this is the first comparison in the project where that question is
+legible at all.
+
+**Deleted:** `make_sim_videos.py` and `make_overlay_videos.py`, the entire masking and
+compositing path. Comparisons are now whole generated frames beside whole rendered frames
+(`src/render/mesh_raster.py`, `export_sim_poses.py`, `render_sim_raster.py`). The renders
+are flat-shaded rather than photoreal, which is the honest trade for having nothing
+fabricated on screen.
+
+Newton's own viewers (ViewerGL/ViewerUSD) cannot consume this state: ProbeScene is pure
+Warp with custom kernels and never builds a newton.Model. warp.render.OpenGLRenderer needs
+pyglet, which is not installed, so the mesh is rasterised directly through our own camera.

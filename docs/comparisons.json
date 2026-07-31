@@ -1,38 +1,20 @@
 {
   "ceramic_vase_drop_mid": {
-    "anim_kb": 246.1,
+    "anim_kb": 216.4,
     "file": "cmp_ceramic_vase_drop_mid.webp",
     "frames": 25,
-    "box": [
-      0,
-      0,
-      543,
-      447
-    ],
-    "note": "e measured 0.033, simulated 0.032, cd=5"
-  },
-  "ceramic_vase_slide": {
-    "anim_kb": 244.1,
-    "file": "cmp_ceramic_vase_slide.webp",
-    "frames": 25,
-    "box": [
-      0,
-      0,
-      543,
-      447
-    ],
-    "note": "mu measured 0.026, launched at 0.34 m/s (from the clip)"
+    "note": "e measured 0.033, simulated 0.036"
   },
   "rubber_duck_drop_mid": {
-    "anim_kb": 248.8,
+    "anim_kb": 195.6,
     "file": "cmp_rubber_duck_drop_mid.webp",
     "frames": 25,
-    "box": [
-      0,
-      0,
-      543,
-      447
-    ],
-    "note": "e measured 0.025, simulated 0.261, cd=32"
+    "note": "e measured 0.025, simulated 0.000"
+  },
+  "ceramic_vase_slide": {
+    "anim_kb": 212.9,
+    "file": "cmp_ceramic_vase_slide.webp",
+    "frames": 25,
+    "note": "mu measured 0.026, launched at 0.00 m/s"
   }
 }

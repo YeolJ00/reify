@@ -181,3 +181,11 @@ class ProbeScene:
 
     def positions(self, stride=20):
         return np.stack([self.pos[t].numpy() for t in range(0, self.n_steps + 1, stride)])
+
+    def rotations(self, stride=20):
+        """Per-frame body orientations as quaternions (x, y, z, w).
+
+        Needed to RENDER the simulation rather than composite it: a falling vase tumbles,
+        and a position-only playback cannot show that.
+        """
+        return np.stack([self.rot[t].numpy() for t in range(0, self.n_steps + 1, stride)])

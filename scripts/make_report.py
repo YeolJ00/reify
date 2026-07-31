@@ -35,6 +35,7 @@ SCOL = {"MOVES": GREEN, "STATIC": LINE, "DEGRADED": RED}
 PRETTY_CMP = {"ceramic_vase_drop_mid": "ceramic vase · drop",
               "ceramic_vase_slide": "ceramic vase · slide",
               "rubber_duck_drop_mid": "rubber duck · drop"}
+AXIS_NOTE = True
 
 
 def style(ax):
@@ -341,25 +342,49 @@ parameter that <em>explains the clip</em>, not one that matches a reference book
 </figcaption></figure>
 
 <h2><span class="num">02</span>Generated video against our simulation of it</h2>
-<p>Left pane: the clip Cosmos produced. Right pane: a Newton rollout at the parameter
-recovered from that same clip. There is no photoreal renderer here, so the right pane is
-a composite — the object is inpainted out of the staged frame and its own sprite pasted
-wherever the simulation puts it. Every pixel of the object is real; every position is
-simulated.</p>
+<p>Left pane: the clip Cosmos produced. Right pane: <b>a render of the simulated mesh</b>
+at the pose Newton computed, using the parameter recovered from that same clip. Flat-shaded
+rather than photoreal, which is the honest trade — nothing on screen is fabricated.</p>
+<p>An earlier version faked this pane by cutting the object out of a photograph with a mask
+and pasting it at the simulated position. Every visual defect in it came from a mask
+failing to match the object's shape, and worse, the fake pane <em>concealed</em> the bug in
+section 03 for the entire project: it pasted a photo of an upright vase, so the simulator's
+sideways one was never visible.</p>
 {vids}
-<div class="call good"><b>The ceramic vase matches: e measured 0.033, simulated 0.032.</b>
-<p>Under the standing framing — any plausible parameter that explains the video will do —
-this is the acceptance test, and the vase passes it. It also passed at the old, wrong
-value of 0.094, which is worth stating plainly: a matching simulation confirms the
-parameter is <em>realisable</em>, not that it is <em>right</em>.</p></div>
-<div class="call bad"><b>The rubber duck does not: measured 0.025, and the simulator
-cannot get below 0.261.</b>
-<p>No contact damping across a range spanning four orders of magnitude reproduces that
-rebound for that mesh. The recovered parameter is <em>not physically realisable in our
-simulator</em> — a genuine negative result rather than a fitting failure, and exactly the
-check that treating the simulator as a hard constraint exists to perform.</p></div>
+<div class="call"><b>What the vase render shows.</b>
+<p>The simulated vase now starts upright — the axis fix — and then <b>topples on
+landing</b>, while the generated clip keeps it standing. The rebound magnitudes agree
+(measured 0.033, simulated 0.036); what disagrees is the post-impact behaviour. A tall
+narrow vase dropped 18&nbsp;cm toppling is not obviously wrong physics, and Cosmos keeping
+it perfectly upright is not obviously right. This is the first comparison in the project
+where that question is even legible.</p></div>
+<div class="call bad"><b>The rubber duck still does not reproduce: measured 0.025,
+simulated 0.000.</b>
+<p>The simulator produces no measurable rebound at all for that mesh at the recovered
+damping. Worth stating plainly: this conclusion has now survived the axis fix, whereas the
+earlier version of it (a floor at 0.194) was computed on a sideways mesh and meant
+nothing.</p></div>
 
-<h2><span class="num">03</span>All seven objects</h2>
+<h2><span class="num">03</span>The simulator was holding the objects on their sides</h2>
+<p>glTF is Y-up by specification. Blender's importer converts to Z-up on load;
+<code>trimesh</code> does not, and <code>load_asset</code> never applied the rotation. So
+for the whole project the simulator held meshes in a different orientation from the
+renderer:</p>
+<div class="tw"><table>
+<thead><tr><th>object</th><th>simulated footprint</th><th>simulated height</th>
+<th>actual</th></tr></thead><tbody>
+<tr><th>ceramic vase</th><td>12.6 × 26.5 cm</td><td>13.1 cm</td>
+<td>12.6 × 12.6, 24.8 tall</td></tr>
+<tr><th>wooden bowl</th><td>19.3 × 5.7 cm</td><td>19.1 cm</td>
+<td>19.4 × 19.2, 5.8 tall</td></tr>
+<tr><th>rubber duck</th><td>13.3 × 17.5 cm</td><td>18.4 cm</td><td>correct by luck</td></tr>
+</tbody></table></div>
+<p>The vase had been falling on its side and the bowl standing on its rim. Sphere covers,
+resting heights and all contact geometry were built from the wrong pose, so every
+simulation-side result predating this fix is void. The measurements are not affected —
+restitution and friction are read from tracked pixel motion and never touch the mesh.</p>
+
+<h2><span class="num">04</span>All seven objects</h2>
 <p>Three drop heights turn restitution from one number into a relationship:
 <code>e</code> at the centre of the measured speed range, and <code>de/dv</code>, its
 change per m/s of impact speed. Impact speed is measured from the track, never assumed
@@ -377,7 +402,7 @@ reads as a rebound larger than the fall.</p>
 further from its rendered context makes the model likelier to re-render it than to move
 it. 0.18 m is the sweet spot.</figcaption></figure>
 
-<h2><span class="num">04</span>The estimator was manufacturing numbers</h2>
+<h2><span class="num">05</span>The estimator was manufacturing numbers</h2>
 <p>The retired fitter searched a parameter grid for the value whose hand-weighted motion
 signature best matched the track. A grid always returns a best match; it never asks
 whether the observation constrains anything. This comparison runs both estimators over
@@ -388,7 +413,7 @@ whether the observation constrains anything. This comparison runs both estimator
 The apple's 1.100 was the grid maximum, a railed bound reported as a measurement.
 </figcaption></figure>
 
-<h2><span class="num">05</span>The tracker was aimed by the wrong pipeline</h2>
+<h2><span class="num">06</span>The tracker was aimed by the wrong pipeline</h2>
 <p>Seeds were produced by projecting a body centre computed as <code>pos + vmean</code>,
 the mesh's vertex mean added to its placed position, with the object's <code>rot_z</code>
 never applied. Blender places the origin at <code>pos</code> and rotates it. The two
@@ -410,7 +435,7 @@ frames isolates it exactly, <em>in the image we are about to track</em>. Geometr
 conventions cannot disagree with the renderer if the renderer is the source. 18 of 28
 seeds moved by more than 20&nbsp;px.</p>
 
-<h2><span class="num">06</span>The generated video runs about 5× too slow</h2>
+<h2><span class="num">07</span>The generated video runs about 5× too slow</h2>
 <p>Our simulation finishes falling, bouncing and settling in the first quarter of a clip
 and then sits still, which is why the simulated pane can look inert. That is the
 simulation being <em>right</em>: a 0.18&nbsp;m fall takes 4.6 frames at 24&nbsp;fps.
@@ -425,7 +450,7 @@ we cannot yet show the same stretch applies to horizontal motion. A drop carries
 clock — known height, known g — so staging a drop and a slide in the same clip would let
 one calibrate the other.</p></div>
 
-<h2><span class="num">07</span>The audit that corrected itself</h2>
+<h2><span class="num">08</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
 measurable motion</del>. That came from tracked centroids, and the tracker fails on these
 clips in a way its own diagnostics cannot see: points stay &ldquo;visible&rdquo; while
@@ -441,8 +466,10 @@ lidded pot into a wide shallow bowl. No density, friction or restitution turns a
 a bowl, so this fails even a plausibility bar. It is asset integrity, not
 identifiability.</p></div>
 
-<h2><span class="num">08</span>Corrections</h2>
+<h2><span class="num">09</span>Corrections</h2>
 <ul>
+<li><b>The simulator held meshes on their sides</b> for the whole project (glTF Y-up
+never converted to Z-up), so every simulation-side result predating the fix is void.</li>
 <li><b>Three published parameters were artefacts of off-object tracking.</b> The
 wooden bowl's friction and the rubber duck's restitution do not survive; the vase's
 restitution moved from 0.094 to 0.033.</li>
@@ -463,7 +490,7 @@ requirement.</li>
 &ldquo;true&rdquo; densities from a hardcoded table of textbook guesses.</li>
 </ul>
 
-<h2><span class="num">09</span>Known limits</h2>
+<h2><span class="num">10</span>Known limits</h2>
 <ul>
 <li>The rubber duck's values come from clips in which it re-forms rather than
 translating; appearance matching cannot fully separate &ldquo;translated&rdquo; from
@@ -471,8 +498,8 @@ translating; appearance matching cannot fully separate &ldquo;translated&rdquo; 
 <li>A prediction I could not test: I expected the baseball's backwards de/dv to flip with
 more data. Its drop clips were already complete in the partial run, so the fit is over
 identical takes and the prediction was never actually put to the test.</li>
-<li>The simulated panes are composites, not renders — simulated <em>positions</em> drawn
-with real pixels, anchored to the observed starting point.</li>
+<li>The simulated panes are flat-shaded renders of the mesh, not photoreal, so the two
+panes differ in appearance by construction. Only the motion is comparable.</li>
 <li>Collide was dropped from the expanded lab at ~24% yield, so mass ratio is not
 measured here at all.</li>
 </ul>

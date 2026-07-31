@@ -34,12 +34,30 @@ def _find_mesh_file(asset_dir: Path) -> Path:
     raise FileNotFoundError(f"no mesh found under {asset_dir}")
 
 
-def load_asset(category: str, name: str) -> trimesh.Trimesh:
-    """Load an asset as a single concatenated trimesh (geometry only)."""
+# glTF is Y-up by specification. Blender's importer converts to Z-up on load; trimesh
+# does not, so for the whole project the simulator held meshes in a different orientation
+# from the renderer. The ceramic vase was simulated 12.6 x 26.5 cm on the ground and
+# 13.1 cm tall -- lying on its side -- while every rendered frame showed it upright, and
+# the wooden bowl stood on its rim. Sphere covers, resting heights and all contact
+# geometry were built from the wrong pose.
+_YUP_TO_ZUP = np.array([[1.0, 0.0, 0.0, 0.0],
+                        [0.0, 0.0, -1.0, 0.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0]])
+
+
+def load_asset(category: str, name: str, up_convert: bool = True) -> trimesh.Trimesh:
+    """Load an asset as a single concatenated trimesh (geometry only).
+
+    up_convert applies the glTF Y-up -> Z-up rotation so the mesh matches the orientation
+    Blender renders it in. Pass False only to inspect the file as authored.
+    """
     mesh_path = _find_mesh_file(ASSETS / category / name)
     m = trimesh.load(mesh_path, force="mesh", process=False)
     if isinstance(m, trimesh.Scene):  # pragma: no cover - force="mesh" should prevent
         m = m.to_mesh()
+    if up_convert and str(mesh_path).lower().endswith((".gltf", ".glb")):
+        m.apply_transform(_YUP_TO_ZUP)
     return m
 
 
