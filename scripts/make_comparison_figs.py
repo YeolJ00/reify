@@ -18,12 +18,16 @@ sys.path.insert(0, str(REPO))
 
 LAB = REPO / "outputs" / "scene" / "expand"
 DOCS = REPO / "docs"
-PAD = 26
-MAXW = 240
+PAD = 40
+MAXW = 470
 STEP = 2          # 24fps -> 12fps: halves the payload, motion still reads clearly
 
 # GIF of these at full rate came to 4.3 MB EACH, which cannot go in a self-contained
 # page. Animated WebP carries the same 49-frame comparison at a fraction of the size.
+#
+# MAXW is set so each pane renders at roughly the width it is DISPLAYED at. The report
+# column is ~990 px and `figure img` stretches to fill it, so a 240 px pane was being
+# upscaled ~2x and looked mushy -- the animation was fine, the presentation was not.
 
 
 def motion_window(gen, sim):
@@ -60,14 +64,20 @@ def stack(gen, sim, box, scale):
         a = a.resize((nw, nh), Image.LANCZOS); b = b.resize((nw, nh), Image.LANCZOS)
         # a label strip: without it the two panes are indistinguishable, which is the
         # one thing this figure must never be ambiguous about
-        bar = 15
+        bar = 22
         c = Image.new("RGB", (nw * 2 + 6, nh + bar), (245, 247, 250))
         c.paste(a, (0, bar)); c.paste(b, (nw + 6, bar))
         dr = ImageDraw.Draw(c)
         dr.rectangle([0, 0, nw, bar - 1], fill=(20, 26, 34))
         dr.rectangle([nw + 6, 0, nw * 2 + 6, bar - 1], fill=(14, 124, 147))
-        dr.text((5, 3), "GENERATED (Cosmos)", fill=(235, 240, 245))
-        dr.text((nw + 11, 3), "SIMULATED (Newton)", fill=(235, 245, 248))
+        try:
+            from PIL import ImageFont
+            fnt = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 13)
+        except Exception:
+            fnt = None
+        dr.text((7, 5), "GENERATED (Cosmos)", fill=(235, 240, 245), font=fnt)
+        dr.text((nw + 13, 5), "SIMULATED (Newton)", fill=(235, 245, 248), font=fnt)
         out.append(c)
     return out
 
@@ -86,7 +96,7 @@ def main():
         frames = stack(gen[::STEP], sim[::STEP], box, scale)
         anim = DOCS / f"cmp_{key}.webp"
         frames[0].save(anim, save_all=True, append_images=frames[1:],
-                       duration=int(1000 / 24 * STEP), loop=0, quality=62, method=6)
+                       duration=int(1000 / 24 * STEP), loop=0, quality=68, method=6)
         kb = anim.stat().st_size / 1024
         # a static filmstrip too: the report should still read with animation blocked
         idx = np.linspace(0, len(frames) - 1, 6).round().astype(int)
