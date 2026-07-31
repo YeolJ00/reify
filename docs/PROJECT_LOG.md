@@ -2148,3 +2148,35 @@ Remaining gap between the panes: ViewerRTX offers only 'default' / 'studio' / 'n
 environments, so the HDRI street backdrop the clips were staged against is absent, and
 `set_camera` takes pitch/yaw with no field-of-view control, so framing differs slightly.
 Blender matches both exactly and remains available via `run_sim_and_render.py`.
+
+---
+
+## M51 — the HDRI cannot be matched inside ViewerRTX; simulation and rendering are fully separable
+
+**Attempted and failed:** giving ViewerRTX the same street HDRI the clips were staged
+against. It exposes only 'default' / 'studio' / 'none' lighting presets, and
+`add_background_usd()` adds background GEOMETRY -- its docstring cites Gaussian splat scans
+-- not environment lighting. Authoring a USD `UsdLux.DomeLight` carrying the .hdr and
+referencing it rendered **pure black** under `environment='none'`: the dome was ignored and
+the presets were disabled at the same time. Reverted to 'studio', the closest available
+match. Blender reproduces the HDRI exactly and remains available via
+`run_sim_and_render.py`; `make_hdri_dome.py` is kept as the record of the attempt.
+
+Also fixed: static geometry now carries its texture only on the first frame. ViewerRTX
+stages textures through /tmp, and re-supplying them every frame made it rewrite and reread
+the same files 49 times, racing into "Corrupt PNG" on the table.
+
+**Simulation and rendering are fully separable, and the consequence is larger than the
+rendering question.** The simulator produces a transform per object per frame for as many
+frames as we ask; the renderer draws whichever frame it is handed. Frame 0 is not special
+to the simulator at all -- it was special only to Cosmos, which received it as conditioning
+and invented everything after it.
+
+So the pipeline can produce a complete physically-generated video of its own:
+
+    video model    one staged frame -> 49 invented frames   (observation, used to infer)
+    our pipeline   recovered theta  -> 49 simulated frames  (physically valid by construction)
+
+That is the project's stated goal rather than a side effect: recover theta, then the
+simulator produces editable, physically-valid animation. The video model is a source of
+motion to measure, not the thing that makes the final motion.

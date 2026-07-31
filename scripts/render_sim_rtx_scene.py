@@ -88,6 +88,13 @@ def main():
             else:
                 sub = (Vv, Ff, Uu, Tt)
 
+        # The staged HDRI cannot be reproduced here. ViewerRTX exposes only
+        # 'default'/'studio'/'none' lighting, and add_background_usd() adds background
+        # GEOMETRY (its docstring cites Gaussian splat scans), not environment lighting:
+        # referencing a USD DomeLight carrying the .hdr rendered pure black under
+        # environment='none', i.e. the dome was ignored and the presets were disabled.
+        # 'studio' is the closest available match; Blender reproduces the HDRI exactly
+        # and stays available through run_sim_and_render.py.
         viewer = V.ViewerRTX(width=int(cam["width"]), height=int(cam["height"]),
                              headless=True, up_axis="Z", environment="studio")
         pitch, yaw = camera_angles(cam["eye"], cam["target"])
@@ -101,21 +108,26 @@ def main():
             R = np.asarray(p["mat"], np.float32)
             loc = np.asarray(p["loc"], np.float32)
             viewer.begin_frame(t / 24.0)
+            # Static geometry carries its texture only on the first frame. ViewerRTX
+            # stages textures through /tmp, and re-supplying them every frame made it
+            # re-write and re-read the same files 49 times, which raced and produced
+            # "Corrupt PNG" for the table on most frames.
+            first = (t == 0)
             viewer.log_mesh("table", wp.array(tV, dtype=wp.vec3),
                             wp.array(tF, dtype=wp.int32),
                             uvs=None if tUV is None else wp.array(tUV, dtype=wp.vec2),
-                            texture=tTex)
+                            texture=tTex if first else None)
             for nm, Vv, Ff, Uu, Tt in statics:
                 viewer.log_mesh(nm, wp.array(Vv, dtype=wp.vec3),
                                 wp.array(Ff, dtype=wp.int32),
                                 uvs=None if Uu is None else wp.array(Uu, dtype=wp.vec2),
-                                texture=Tt)
+                                texture=Tt if first else None)
             # the simulated body: vertices carried to the rollout's pose this frame
             Vw = (sV - com) @ R.T + (loc + R @ com)
             viewer.log_mesh(subj, wp.array(Vw.astype(np.float32), dtype=wp.vec3),
                             wp.array(sF, dtype=wp.int32),
                             uvs=None if sUV is None else wp.array(sUV, dtype=wp.vec2),
-                            texture=sTex)
+                            texture=sTex if first else None)
             viewer.end_frame()
             viewer.save_screenshot(str(outdir / f"f{t:04d}.png"))
         viewer.close()
