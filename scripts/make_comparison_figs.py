@@ -1,8 +1,8 @@
 """Generated clip beside a render of the simulation, in the SAME scene.
 
-Left: what Cosmos produced. Right: the simulated rollout rendered by Blender/Cycles in the
-staged scene -- same table, same HDRI, same camera, same materials -- so the only
-difference between the panes is the physics.
+Left: what Cosmos produced. Right: the simulated rollout rendered by newton.viewer.ViewerRTX
+in the staged scene -- the same table and objects, textured, ray traced -- entirely inside
+Warp/Newton with no Blender in the loop.
 
 Physics and rendering are separate concerns that meet at a single interface: per-frame
 object transforms. Warp integrates a sphere-cover proxy and knows nothing about texture;
@@ -51,18 +51,22 @@ def stack(gen, sim):
         d.rectangle([0, 0, nw, bar - 1], fill=(20, 26, 34))
         d.rectangle([nw + 6, 0, nw * 2 + 6, bar - 1], fill=(14, 124, 147))
         d.text((7, 5), "GENERATED (Cosmos)", fill=(235, 240, 245), font=f)
-        d.text((nw + 13, 5), "SIMULATED (Newton physics, Cycles render)",
+        d.text((nw + 13, 5), "SIMULATED (Newton physics + ViewerRTX)",
                fill=(235, 245, 248), font=f)
         out.append(c)
     return out
 
 
 def main():
-    # prefer the Blender renders (same scene as the clip); fall back to ViewerRTX
+    # Warp-native first: ViewerRTX rendering the staged scene. Blender renders (sim_*)
+    # and the bare ViewerRTX pass (nsim_*) remain as fallbacks.
     meta = json.loads((LAB / "sim_poses.json").read_text())
     for k in meta:
-        d = LAB / f"sim_{k}"
-        meta[k]["dir"] = d.name if d.exists() and any(d.glob("f*.png")) else f"nsim_{k}"
+        for cand in (f"rtx_{k}", f"sim_{k}", f"nsim_{k}"):
+            d = LAB / cand
+            if d.exists() and any(d.glob("f*.png")):
+                meta[k]["dir"] = cand
+                break
     cfg = json.loads((LAB / "lab.json").read_text())
     made = {}
     for key, info in meta.items():

@@ -343,17 +343,18 @@ parameter that <em>explains the clip</em>, not one that matches a reference book
 
 <h2><span class="num">02</span>Generated video against our simulation of it</h2>
 <p>Left pane: the clip Cosmos produced. Right pane: the simulated rollout at the parameter
-recovered from that same clip, rendered by <b>Blender/Cycles in the staged scene</b> — same
-table, same HDRI, same camera, same materials. The only difference between the panes is the
-physics.</p>
+recovered from that same clip, rendered by <b><code>newton.viewer.ViewerRTX</code> in the
+staged scene</b> — the same table and objects, textured, ray traced, entirely inside
+Warp/Newton with no Blender in the loop.</p>
 <div class="call"><b>Physics and rendering are separate layers that meet at one interface:
 per-frame object transforms.</b>
 <p>Warp integrates a sphere-cover proxy (802 spheres for the vase) and knows nothing about
-texture. Blender draws the textured glTF and knows nothing about contact. Nothing has to be
-shared but the pose, which is why a simulation can be rendered by whatever renderer already
-has the scene. Newton's own <code>ViewerRTX</code> also renders the rollout, but with its
-own ground and lighting and no field-of-view control — a solver-debugging view rather than
-something comparable to a photograph.</p></div>
+texture. The renderer needs textured triangles and a camera and knows nothing about contact.
+They meet only at the per-frame transform, which is why the same rollout can be drawn by
+ViewerRTX or by Blender without the physics changing. An earlier ViewerRTX pass looked bare
+only because it had been handed a single mesh on a default ground plane;
+<code>log_mesh</code> takes UVs, textures, roughness and metallic, so the staged scene can
+be rebuilt inside it.</p></div>
 <p>Two earlier versions of this pane are gone. The first faked it by cutting the object out
 of a photograph with a mask and pasting it at the simulated position — every defect in it
 was a mask failing to match the object's shape, and worse, it <em>concealed</em> the bug in

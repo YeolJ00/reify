@@ -2113,3 +2113,38 @@ The wider lesson is the value of the control. For the whole project the simulati
 only be inspected through numbers; once it could be rendered, a measurement with a known
 answer became available and immediately falsified a published claim. Any future observable
 should be run against the rendered simulation before it is run against video.
+
+---
+
+## M50 — ViewerRTX renders the staged scene; the stack, stated
+
+The earlier ViewerRTX pass looked bare -- untextured mesh on a default ground -- and that
+read as a Newton limitation. It was not. `log_mesh` takes UVs, a texture, roughness and
+metallic, so the staged scene rebuilds inside the viewer: table, duck, apple, book, bowl,
+baseball and brass pot, all textured, ray traced, with the simulated body's vertices carried
+to the rollout's pose each frame. Entirely Warp/Newton, no Blender in the loop
+(`render_sim_rtx_scene.py`).
+
+**How the pieces fit.**
+
+    SIMULATION            src/sim/probe_scene.py, pure Warp kernels
+                          802 spheres approximating the vase; 6-DOF integration;
+                          penalty contact against a ground plane; differentiable
+                          -> per-frame position + quaternion
+
+    INTERFACE             sim_poses.json: one transform per object per frame
+                          this is the ONLY thing the two halves exchange
+
+    RENDERING             newton.viewer.ViewerRTX  (Warp-native, path traced)
+                          or Blender/Cycles        (what produced the conditioning frames)
+                          textured glTF, camera, lights -- knows nothing about contact
+
+Newton the *framework* is used elsewhere (`scene_sim.py`: ModelBuilder, SolverXPBD,
+CollisionPipeline) but not by `ProbeScene`, which was hand-written in Warp because Newton's
+XPBD/VBD solvers returned zero gradients through contact. So the physics is Warp; Newton
+contributes the renderer here.
+
+Remaining gap between the panes: ViewerRTX offers only 'default' / 'studio' / 'none'
+environments, so the HDRI street backdrop the clips were staged against is absent, and
+`set_camera` takes pitch/yaw with no field-of-view control, so framing differs slightly.
+Blender matches both exactly and remains available via `run_sim_and_render.py`.
