@@ -342,14 +342,22 @@ parameter that <em>explains the clip</em>, not one that matches a reference book
 </figcaption></figure>
 
 <h2><span class="num">02</span>Generated video against our simulation of it</h2>
-<p>Left pane: the clip Cosmos produced. Right pane: <b>a render of the simulated mesh</b>
-at the pose Newton computed, using the parameter recovered from that same clip. Flat-shaded
-rather than photoreal, which is the honest trade — nothing on screen is fabricated.</p>
-<p>An earlier version faked this pane by cutting the object out of a photograph with a mask
-and pasting it at the simulated position. Every visual defect in it came from a mask
-failing to match the object's shape, and worse, the fake pane <em>concealed</em> the bug in
-section 03 for the entire project: it pasted a photo of an upright vase, so the simulator's
-sideways one was never visible.</p>
+<p>Left pane: the clip Cosmos produced. Right pane: <b>Newton's own renderer</b>
+(<code>newton.viewer.ViewerRTX</code>, headless, ray traced) drawing the simulated mesh at
+the pose our rollout computed, using the parameter recovered from that same clip.</p>
+<p>Newton's viewers could not draw this at first because <code>ProbeScene</code> is pure
+Warp — custom 6-DOF kernels, never a <code>newton.Model</code>. That is a reason to give
+Newton a Model, not to write another renderer: the geometry is loaded into a
+<code>ModelBuilder</code> purely for display and driven frame by frame from our rollout.
+The panes differ in surroundings and framing (Newton draws its own ground and lighting, and
+<code>ViewerRTX</code> takes pitch/yaw but not the lab camera's 46° field of view), so only
+the motion is comparable.</p>
+<p>Two earlier versions of this pane are gone. The first faked it by cutting the object out
+of a photograph with a mask and pasting it at the simulated position — every defect in it
+was a mask failing to match the object's shape, and worse, it <em>concealed</em> the bug in
+section 03 for the entire project by pasting a photo of an upright vase. The second was a
+hand-written rasteriser, which was the wrong answer to the same question when a real
+renderer was already available.</p>
 {vids}
 <div class="call"><b>What the vase render shows.</b>
 <p>The simulated vase now starts upright — the axis fix — and then <b>topples on
@@ -498,8 +506,11 @@ translating; appearance matching cannot fully separate &ldquo;translated&rdquo; 
 <li>A prediction I could not test: I expected the baseball's backwards de/dv to flip with
 more data. Its drop clips were already complete in the partial run, so the fit is over
 identical takes and the prediction was never actually put to the test.</li>
-<li>The simulated panes are flat-shaded renders of the mesh, not photoreal, so the two
-panes differ in appearance by construction. Only the motion is comparable.</li>
+<li>The simulated panes come from Newton's ViewerRTX with its own ground and lighting, and
+its camera takes pitch/yaw but not the lab camera's field of view, so framing and
+surroundings differ from the generated pane. Only the motion is comparable. Rendering the
+rollout in Blender — which produced the conditioning frames — would put both panes in the
+same visual space and is the obvious next step.</li>
 <li>Collide was dropped from the expanded lab at ~24% yield, so mass ratio is not
 measured here at all.</li>
 </ul>

@@ -2008,3 +2008,37 @@ fabricated on screen.
 Newton's own viewers (ViewerGL/ViewerUSD) cannot consume this state: ProbeScene is pure
 Warp with custom kernels and never builds a newton.Model. warp.render.OpenGLRenderer needs
 pyglet, which is not installed, so the mesh is rasterised directly through our own camera.
+
+---
+
+## M47 — render with Newton's own viewer, not a hand-written one
+
+The conditioning frames the video model sees come from **Blender** (`blender_expand.py`,
+Cycles, HDRI, the real table asset). I had claimed "there is no photoreal renderer here",
+which was simply false -- a photoreal renderer produced every input to the pipeline.
+
+**Why Newton's viewers had nothing to draw.** Newton IS used in this project
+(`src/sim/scene_sim.py` builds a `newton.ModelBuilder` with `SolverXPBD` and
+`CollisionPipeline`). But `ProbeScene`, the simulator every measurement comes from, is
+hand-written Warp kernels and never constructs a `newton.Model`. So it was never "Newton
+cannot render this" -- it was "we are not using Newton for this simulation."
+
+That is a reason to give Newton a Model, not to write a third renderer. The geometry is now
+loaded into a `ModelBuilder` purely for display and the body transform driven frame by frame
+from our own rollout, then rendered with `newton.viewer.ViewerRTX(headless=True)` and
+`save_screenshot`. Needed two packages that were missing:
+
+    pip install ovrtx      (ViewerRTX backend, ~1.8 GB wheel)
+    pip install pyglet     (>=2.0)
+
+**Deleted:** `src/render/mesh_raster.py` and `scripts/render_sim_raster.py`, the
+hand-written rasteriser. It was the wrong answer to the question "how do I see the
+simulation" when a real renderer was already in the loop, and a second wrong answer after
+the mask compositing.
+
+Remaining mismatch, stated rather than hidden: ViewerRTX draws its own ground and lighting
+rather than the wooden table and HDRI the clips were staged in, and its `set_camera` takes
+pitch/yaw but not the lab camera's 46 degree field of view. So the panes differ in framing
+and surroundings; only the motion is comparable. Rendering the rollout in Blender would put
+both panes in the same visual space -- `scripts/blender_render_sim.py` already does this and
+is the obvious next step.

@@ -1,9 +1,13 @@
-"""Generated clip beside the rendered simulation. No masks, no compositing.
+"""Generated clip beside Newton's own render of the simulation. No masks, no compositing.
 
-Both panes are whole frames: the left is what Cosmos produced, the right is a render of
-the simulated mesh at the pose Newton computed. They do not match in appearance -- the
-right pane is flat-shaded, not photoreal -- and that is the honest trade for having
-nothing on screen that was fabricated.
+Left: what Cosmos produced. Right: newton.viewer.ViewerRTX rendering the simulated mesh at
+the pose our rollout computed -- ray traced, real geometry, real pose. ProbeScene is pure
+Warp and never builds a newton.Model, which is why Newton's viewers had nothing to draw;
+the geometry is loaded into a ModelBuilder purely for display and driven from our rollout.
+
+The two panes differ in surroundings (Newton draws its own ground and lighting, not the
+wooden table and HDRI the clip was staged in) and in framing, since ViewerRTX exposes
+pitch/yaw but not the lab camera's 46 degree field of view. Only the motion is comparable.
 
 Run: python scripts/make_comparison_figs.py         (warp env, no GPU)
 """
@@ -46,20 +50,21 @@ def stack(gen, sim):
         d.rectangle([0, 0, nw, bar - 1], fill=(20, 26, 34))
         d.rectangle([nw + 6, 0, nw * 2 + 6, bar - 1], fill=(14, 124, 147))
         d.text((7, 5), "GENERATED (Cosmos)", fill=(235, 240, 245), font=f)
-        d.text((nw + 13, 5), "SIMULATED (Newton, rendered)", fill=(235, 245, 248), font=f)
+        d.text((nw + 13, 5), "SIMULATED (Newton ViewerRTX)", fill=(235, 245, 248), font=f)
         out.append(c)
     return out
 
 
 def main():
-    meta = json.loads((LAB / "sim_render.json").read_text())
+    meta = json.loads((LAB / "newton_render.json").read_text())
     cfg = json.loads((LAB / "lab.json").read_text())
     made = {}
     for key, info in meta.items():
-        sp = LAB / f"simr_{key}.npz"
-        if not sp.exists():
+        sdir = LAB / info["dir"]
+        fs = sorted(sdir.glob("f*.png"))
+        if not fs:
             continue
-        sim = np.load(sp)["frames"]
+        sim = np.stack([np.asarray(Image.open(f).convert("RGB")) for f in fs])
         # the generated take this parameter came from
         cands = sorted(LAB.glob(f"vid_{key}_seed*.npz"))
         pick = None
