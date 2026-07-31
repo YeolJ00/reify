@@ -343,9 +343,16 @@ parameter that <em>explains the clip</em>, not one that matches a reference book
 
 <h2><span class="num">02</span>Generated video against our simulation of it</h2>
 <p>Left pane: the clip Cosmos produced. Right pane: the simulated rollout at the parameter
-recovered from that same clip, rendered by <b><code>newton.viewer.ViewerRTX</code> in the
-staged scene</b> — the same table and objects, textured, ray traced, entirely inside
-Warp/Newton with no Blender in the loop.</p>
+recovered from that same clip, rendered by <b>Blender/Cycles in the staged scene</b> — same
+table, same HDRI, same camera, same materials, so the only difference between the panes is
+the physics. <b>All physics is Warp/Newton; Blender only draws.</b> Newton's own ViewerRTX
+also renders the staged scene (Warp-native, textured, ray traced), but it offers no way to
+load the staged HDRI, so Blender is the one that puts both panes in the same visual
+space.</p>
+<p>The right pane is a complete 49-frame video the video model had no part in. Frame 0 is
+special only to Cosmos, which received it as conditioning; the simulator emits a transform
+per frame for as many frames as asked. Recovering θ and then generating the motion
+ourselves is the point of the project, not a by-product.</p>
 <div class="call"><b>Physics and rendering are separate layers that meet at one interface:
 per-frame object transforms.</b>
 <p>Warp integrates a sphere-cover proxy (802 spheres for the vase) and knows nothing about
