@@ -43,14 +43,16 @@ NCC_OK = 0.55
 SEARCH = 140
 
 
-def track_cached(f, seed, role):
+def track_cached(f, seed, role, tag=""):
     """Track with a disk cache, tolerating clips the generator is still writing.
 
     This script is meant to be runnable while generation is in flight, so a half-written
     npz must be skipped rather than crash the run -- and a cache entry must never be
     written from a partial read.
     """
-    cache = LAB / f"ptrk_{f.stem.replace('vid_','')}_{role}.npz"
+    # the cache key carries the seed SOURCE: corrected seeds must never silently reuse
+    # tracks made from the old, off-object ones
+    cache = LAB / f"ptrk{tag}_{f.stem.replace('vid_','')}_{role}.npz"
     if cache.exists():
         try:
             d = np.load(cache)
@@ -70,7 +72,12 @@ def track_cached(f, seed, role):
 
 def main():
     cfg = json.loads((LAB / "lab.json").read_text())
-    seeds = json.loads((LAB / "seeds.json").read_text())
+    # image-derived seeds when available: the projected ones were off the object by
+    # more than the patch half-size for four of seven objects
+    si = LAB / "seeds_image.json"
+    seeds = json.loads((si if si.exists() else LAB / "seeds.json").read_text())
+    tag = "_img" if si.exists() else ""
+    print(f"seeds: {'image-derived' if si.exists() else 'projected geometry'}\n")
     px_per_m, _ = pixel_scale(cfg["camera"], cfg["ground_z"])
 
     per = {}          # subj -> {"drop": [(v_impact, e, se)], "slide": ([v],[se])}
@@ -80,7 +87,7 @@ def main():
         if not s:
             continue
         for f in sorted(LAB.glob(f"vid_{key}_seed*.npz")):
-            r = track_cached(f, s, "subject")
+            r = track_cached(f, s, "subject", tag)
             if r == "INCOMPLETE":
                 nskip += 1
                 continue

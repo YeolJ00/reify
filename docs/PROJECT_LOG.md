@@ -1871,3 +1871,78 @@ same 49-frame comparison in ~90 KB, which is what makes it embeddable.
 Report rebuilt around the expanded lab: the three parameters that clear +-25%, the
 side-by-side animations, the seven-object e(v) table, drop yield by height, and the full
 corrections list.
+
+---
+
+## M45 — the tracker was aimed by the wrong pipeline; three results withdrawn
+
+Chasing a visual defect the user reported in the simulated pane ("the vase is floating mid
+air and some shadow drops") led to a foundational bug, and the M43/M44 headline results do
+not survive it.
+
+**The seeds were off the object.** `seeds.json` came from projecting `obj_geom`'s body
+centre, computed as `pos + vmean` -- the mesh's vertex mean added to its placed position,
+with `rot_z` never applied. Blender places the origin at `pos` and rotates it. The two
+conventions differ by the mesh's own centroid offset: ~0 for a baseball, large for
+anything asymmetric.
+
+    object          seed u,v    true u,v      offset   patch half-size
+    ceramic vase   186, 122    151, 114     +35,  +8        28
+    rubber duck    183,  98    147, 118     +36, -20        29
+    brass pot      195, 108    155, 196     +40, -88        41
+    book           208, 135    181, 138     +27,  -3        16
+    baseball       154, 135    152, 137      +1,  -2        17
+
+Where the offset exceeds the patch half-size the tracker was following mostly wall. This
+is why the inpaint mask missed the vase and left it hanging while a fragment fell: the
+mask was centred 35 px to the side of it.
+
+**The fix removes the parallel pipeline rather than correcting it** (`seed_from_image.py`).
+The subject is the only thing that moves between two stagings of the same object, so
+differencing two initial frames isolates it exactly, in the image we are about to track.
+Geometry conventions cannot disagree with the renderer if the renderer is the source.
+18 of 28 seeds moved by more than 20 px.
+
+**WITHDRAWN, on corrected seeds:**
+
+    wooden_bowl friction     0.317 +- 0.076  ->  0.062 +- 0.151   not a measurement
+    rubber_duck restitution  0.125 +- 0.027  ->  0.025 +- 0.010   (+-40%)
+    ceramic_vase restitution 0.094 +- 0.014  ->  0.033 +- 0.008
+
+The wooden bowl's friction was reported as "the first value to land in the textbook range
+for wood on wood", with a tidy explanation (flat-bottomed objects slide, spheres roll).
+The explanation was plausible and the number was an artefact. Both surviving parameters
+now belong to the same object:
+
+    ceramic_vase restitution  0.033 +- 0.008   (24%)
+    ceramic_vase friction     0.026 +- 0.006   (22%)
+
+**The generated video runs ~5x too slow.** Separately measured while diagnosing why the
+simulated pane looks inert: across 90 usable drops the generated fall takes a median 5.5x
+longer than physics allows (quartiles 3.2-7.8x), an effective gravity near 0.3 m/s^2. Our
+rollout finishes falling, bouncing and settling in the first quarter of the clip because
+a 0.18 m fall really does take 4.6 frames at 24 fps.
+
+This splits the parameters by dimension. Restitution is a RATIO of two speeds in the same
+clip, so a uniform time rescale cancels and it survives. Friction is |a|/g, dimensional:
+stretch time by alpha and measured acceleration falls by alpha^2. Every friction number is
+therefore suspect in a way the restitutions are not. No correction is applied because we
+cannot yet show the same stretch applies to horizontal motion -- a drop carries its own
+clock (known height, known g), so staging a drop and a slide in one clip would let one
+calibrate the other.
+
+**Three further bugs, all found by looking rather than trusting:**
+
+  * the sprite and inpaint mask were sized from `size_px`, the SMALLEST horizontal extent
+    -- right for seeding a tracker, wrong for cutting out a 12.6 x 24.8 cm vase, so the
+    mask covered 44 px of a 120 px object;
+  * the cd bisection aborted on any rollout with no detectable rebound, returning
+    cd=32/e=0.001 for a target of 0.033 while cd=4 gave 0.094 -- the answer was bracketed
+    the whole time and simply never found. A rebound-free rollout is e~0, not a reason to
+    stop searching;
+  * `drop_observables` divided by a `v_post` of exactly zero.
+
+**Still standing:** the ceramic vase's drop is reproduced by a Newton rollout (measured
+0.033, simulated 0.032) and the rubber duck's is not (measured 0.025, simulator floors at
+0.261). Worth stating plainly: the vase also "matched" at the old, wrong value of 0.094.
+A matching simulation confirms a parameter is REALISABLE, not that it is RIGHT.

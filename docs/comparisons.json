@@ -1,6 +1,6 @@
 {
   "ceramic_vase_drop_mid": {
-    "anim_kb": 90.5,
+    "anim_kb": 87.8,
     "file": "cmp_ceramic_vase_drop_mid.webp",
     "frames": 25,
     "box": [
@@ -9,10 +9,22 @@
       543,
       447
     ],
-    "note": "e measured 0.094, simulated 0.094, cd=4"
+    "note": "e measured 0.033, simulated 0.032, cd=5"
+  },
+  "ceramic_vase_slide": {
+    "anim_kb": 88.6,
+    "file": "cmp_ceramic_vase_slide.webp",
+    "frames": 25,
+    "box": [
+      0,
+      0,
+      543,
+      447
+    ],
+    "note": "mu measured 0.026, launched at 0.34 m/s (from the clip)"
   },
   "rubber_duck_drop_mid": {
-    "anim_kb": 89.2,
+    "anim_kb": 88.5,
     "file": "cmp_rubber_duck_drop_mid.webp",
     "frames": 25,
     "box": [
@@ -21,18 +33,6 @@
       543,
       447
     ],
-    "note": "e measured 0.125, simulated 0.194, cd=32"
-  },
-  "wooden_bowl_slide": {
-    "anim_kb": 82.9,
-    "file": "cmp_wooden_bowl_slide.webp",
-    "frames": 25,
-    "box": [
-      0,
-      0,
-      543,
-      447
-    ],
-    "note": "mu measured 0.317, launched at 0.79 m/s (from the clip)"
+    "note": "e measured 0.025, simulated 0.261, cd=32"
   }
 }

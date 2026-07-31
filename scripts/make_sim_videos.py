@@ -30,21 +30,31 @@ NF = 49
 FPS = 24.0
 
 
-def sprite_and_plate(img, u, v, size_px):
-    """Cut the object out of the staged frame and inpaint the hole."""
+def sprite_and_plate(img, u, v, hw, hh):
+    """Cut the object out of the staged frame and inpaint the hole.
+
+    hw/hh are HALF-EXTENTS in pixels, derived from the object's real width AND height.
+    Sizing both from seeds.json's `size_px` was wrong: that is the smallest horizontal
+    extent, chosen so a tracker seeds inside a thin object, and it is far too small for a
+    tall one. On the 12.6 x 24.8 cm vase it gave a 44 px mask for a 120 px tall object,
+    so the inpaint erased only the middle -- leaving the vase's top and bottom hanging in
+    mid-air while the pasted mid-band fragment fell like a shadow.
+    """
     h, w = img.shape[:2]
-    r = int(max(size_px * 0.62, 12))
-    x0, x1 = max(int(u) - r, 0), min(int(u) + r, w)
-    y0, y1 = max(int(v) - r, 0), min(int(v) + r, h)
+    hw = int(max(hw, 10)); hh = int(max(hh, 10))
+    x0, x1 = max(int(u) - hw, 0), min(int(u) + hw, w)
+    y0, y1 = max(int(v) - hh, 0), min(int(v) + hh, h)
     sprite = img[y0:y1, x0:x1].copy()
     mask = np.zeros((h, w), np.uint8)
-    cv2.circle(mask, (int(u), int(v)), int(r * 1.15), 255, -1)
+    cv2.ellipse(mask, (int(u), int(v)), (int(hw * 1.12), int(hh * 1.12)),
+                0, 0, 360, 255, -1)
     plate = cv2.inpaint(img, mask, 7, cv2.INPAINT_TELEA)
     # a soft-edged alpha so the paste does not show a hard square seam
     sh, sw = sprite.shape[:2]
     yy, xx = np.mgrid[0:sh, 0:sw]
-    d = np.hypot(yy - sh / 2.0, xx - sw / 2.0) / (min(sh, sw) / 2.0)
-    alpha = np.clip(1.6 * (1.0 - d), 0.0, 1.0)[..., None]
+    # elliptical falloff matching the crop's aspect, so a tall object is not clipped
+    d = np.hypot((yy - sh / 2.0) / (sh / 2.0), (xx - sw / 2.0) / (sw / 2.0))
+    alpha = np.clip(2.2 * (1.0 - d), 0.0, 1.0)[..., None]
     return sprite, alpha, plate
 
 
@@ -103,7 +113,12 @@ def tune_cd(target_e, *args):
         # with exactly the same function used on the video -- which is the point
         o = drop_observables(np.stack([uv[:, 0], uv[:, 1]], 1))
         if not o.get("ok"):
-            break
+            # A rollout with no detectable rebound is e ~ 0, not a reason to abandon the
+            # search. Breaking here made the bisection return whatever it had reached so
+            # far -- it reported cd=32/e=0.001 for a target of 0.033 while cd=4 gave
+            # 0.094, so the answer was bracketed the whole time and simply never found.
+            hi = cd
+            continue
         # keep the CLOSEST rollout, not the last one the bisection happened to try:
         # if the target lies outside what the simulator can produce, the last iterate
         # is an arbitrary endpoint while the closest is the honest best effort
@@ -125,14 +140,17 @@ def main():
     from src.sim.probe_scene import ProbeScene
 
     cfg = json.loads((LAB / "lab.json").read_text())
-    seeds = json.loads((LAB / "seeds.json").read_text())
+    si = LAB / "seeds_image.json"
+    seeds = json.loads((si if si.exists() else LAB / "seeds.json").read_text())
+    print(f"seeds: {'image-derived' if si.exists() else 'projected'}")
     fit = json.loads((LAB / "expand_fit.json").read_text())
 
     # the objects whose parameters actually cleared the precision bar, plus the height
     # whose clips produced them
+    # the parameters that survive on corrected seeds, plus one that does not
     picks = [("ceramic_vase", "drop_mid", "restitution"),
-             ("rubber_duck", "drop_mid", "restitution"),
-             ("wooden_bowl", "slide", "friction")]
+             ("ceramic_vase", "slide", "friction"),
+             ("rubber_duck", "drop_mid", "restitution")]
 
     wp.init()
     out = {}
@@ -154,7 +172,7 @@ def main():
             _ppm, _ = _ps(cfg["camera"], cfg["ground_z"])
             best = None
             for f in sorted(LAB.glob(f"vid_{key}_seed*.npz")):
-                c = LAB / f"ptrk_{f.stem.replace('vid_','')}_subject.npz"
+                c = LAB / f"ptrk_img_{f.stem.replace('vid_','')}_subject.npz"
                 if not c.exists():
                     continue
                 d = np.load(c)
@@ -184,7 +202,7 @@ def main():
                 from scripts.simple_fit import pixel_scale
                 from src.motion.observables import slide_observables
                 ppm, _ = pixel_scale(cfg["camera"], cfg["ground_z"])
-                ck = LAB / f"ptrk_{clip.stem.replace('vid_','')}_subject.npz"
+                ck = LAB / f"ptrk_img_{clip.stem.replace('vid_','')}_subject.npz"
                 dtr = np.load(ck)
                 so_ = slide_observables(np.stack([dtr["u"], dtr["v"]], 1), ppm, FPS)
                 v0 = abs(so_.get("v0", 0.0)) * FPS / ppm if so_.get("ok") else 0.0
@@ -196,7 +214,17 @@ def main():
 
             s = seeds[key]["subject"]
             I0 = frames[0]
-            sprite, alpha, plate = sprite_and_plate(I0, s["u"], s["v"], s["size_px"])
+            # projected half-extents from the asset's real dimensions
+            # extents measured from the image too, when available: deriving them from
+            # asset geometry is what put the mask beside the object in the first place
+            if "w_px" in s:
+                hw, hh = 0.5 * s["w_px"], 0.5 * s["h_px"]
+            else:
+                so_cm = cfg["assets"][subj]["size_cm"]
+                ppm_obj = s["size_px"] / (min(so_cm[0], so_cm[1]) / 100.0)
+                hw = 0.5 * ppm_obj * max(so_cm[0], so_cm[1]) / 100.0
+                hh = 0.5 * ppm_obj * so_cm[2] / 100.0
+            sprite, alpha, plate = sprite_and_plate(I0, s["u"], s["v"], hw, hh)
             # Anchor the simulated path to the observed starting point. obj_geom centres
             # a body on its sphere-cover origin while the tracker seeds on the projected
             # centroid, so the two differ by a constant offset; leaving it in made the

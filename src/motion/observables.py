@@ -170,9 +170,11 @@ def drop_observables(cen, win=WIN):
                 "v_pre": v_pre, "v_pre_se": s_pre}
     # v_post is negative when it rebounds; a non-significant v_post is a genuine
     # measurement of "did not bounce", not a failure
-    if v_post > 0:
-        # still descending after the deepest point: no rebound occurred at all.
-        # e = 0 is the measurement, and its error bar is what the noise allows.
+    if v_post >= 0:
+        # Still descending (or exactly stationary) after the deepest point: no rebound
+        # occurred. e = 0 is the measurement and its error bar is what the noise allows.
+        # The >= matters: a v_post of exactly zero used to fall through to the rebound
+        # branch and divide by it.
         e, se = 0.0, float(s_post / abs(v_pre))
     else:
         e = abs(v_post) / abs(v_pre)

@@ -33,8 +33,8 @@ OLD_GRID = {"baseball": 0.680, "brass_pot": 0.365, "ceramic_vase": 0.470, "apple
 STATES = ["MOVES", "STATIC", "DEGRADED"]
 SCOL = {"MOVES": GREEN, "STATIC": LINE, "DEGRADED": RED}
 PRETTY_CMP = {"ceramic_vase_drop_mid": "ceramic vase · drop",
-              "rubber_duck_drop_mid": "rubber duck · drop",
-              "wooden_bowl_slide": "wooden bowl · slide"}
+              "ceramic_vase_slide": "ceramic vase · slide",
+              "rubber_duck_drop_mid": "rubber duck · drop"}
 
 
 def style(ax):
@@ -165,13 +165,15 @@ def drop_yield(cfg):
     hs = cfg.get("heights", {"low": 0.08, "mid": 0.18, "high": 0.30})
     order = [k for k in ("low", "mid", "high") if k in hs]
     ok = {k: 0 for k in order}; tot = {k: 0 for k in order}
-    seeds = json.loads((EXP / "seeds.json").read_text())
+    # use the corrected, image-derived track cache when it exists; reading the stale
+    # ptrk_ files here would have put pre-fix yields in a post-fix report
+    tag = "_img" if (EXP / "seeds_image.json").exists() else ""
     for key, e in cfg["experiments"].items():
         if e["kind"] != "drop" or e.get("height_name") not in ok:
             continue
         h = e["height_name"]
         for f in sorted(EXP.glob(f"vid_{key}_seed*.npz")):
-            c = EXP / f"ptrk_{f.stem.replace('vid_','')}_subject.npz"
+            c = EXP / f"ptrk{tag}_{f.stem.replace('vid_','')}_subject.npz"
             if not c.exists():
                 continue
             d = np.load(c); tot[h] += 1
@@ -225,7 +227,7 @@ def main():
                   f'<td>{em}</td><td>{sl}</td><td>{fr}</td></tr>')
 
     vids = ""
-    for k in ("ceramic_vase_drop_mid", "rubber_duck_drop_mid", "wooden_bowl_slide"):
+    for k in ("ceramic_vase_drop_mid", "ceramic_vase_slide", "rubber_duck_drop_mid"):
         m = cmps.get(k)
         if not m:
             continue
@@ -307,8 +309,8 @@ footer {{ margin-top:4rem; padding-top:1.2rem; border-top:1px solid var(--line);
 
 <div class="wrap">
 <div class="eyebrow">Per-instance inverse simulation · measurement report</div>
-<h1>Three physical parameters recovered from generated video — and a simulation that
-reproduces one of them exactly</h1>
+<h1>What survives when the instrument is checked: two parameters, one reproducible
+simulation, and a tracker that was aimed at the wrong place</h1>
 <p class="lede">We stage physics experiments, film them with a video model, and recover
 material parameters by measuring the motion. Everything below is measured. Every earlier
 claim that did not survive re-measurement is listed at the end rather than removed.</p>
@@ -324,12 +326,14 @@ claim that did not survive re-measurement is listed at the end rather than remov
 
 <h2><span class="num">01</span>What the pipeline recovers</h2>
 {wins}
-<p>The wooden bowl's friction is the first value to land in the textbook range for wood
-on wood (0.3–0.6) rather than an order of magnitude below it. That is not luck: the bowl
-is flat-bottomed and genuinely <em>slides</em>, whereas the spheres roll, and a rolling
-object's deceleration measures rolling resistance rather than the Coulomb μ a simulator
-consumes. <b>Probe validity depends on object shape</b>, and the bowl is the first object
-for which the slide probe is the right experiment at all.</p>
+<div class="call bad"><b>An earlier version of this page reported three parameters,
+including a wooden-bowl friction of 0.317 described as the first value to land in the
+textbook range for wood on wood. That was an artefact and is withdrawn.</b>
+<p>The tracking patch was being aimed by projected geometry that disagreed with the
+renderer, and for four of seven objects it sat <em>off the object entirely</em>. Seeding
+from the rendered image instead moves the bowl to 0.062 ± 0.151 — not a measurement — and
+the rubber duck's restitution from 0.125 to 0.025 ± 0.010. Section 05 has the detail. Both
+surviving parameters belong to the same object.</p></div>
 <figure><img src="{f_prec}" alt="Every parameter with its interval">
 <figcaption>Every parameter with its propagated interval, sorted by precision. No
 handbook comparison is drawn: a downloaded mesh has no true density, and the goal is a
@@ -343,16 +347,17 @@ a composite — the object is inpainted out of the staged frame and its own spri
 wherever the simulation puts it. Every pixel of the object is real; every position is
 simulated.</p>
 {vids}
-<div class="call good"><b>The ceramic vase matches: e measured 0.094, simulated 0.094.</b>
+<div class="call good"><b>The ceramic vase matches: e measured 0.033, simulated 0.032.</b>
 <p>Under the standing framing — any plausible parameter that explains the video will do —
-this is the acceptance test, and the vase passes it.</p></div>
-<div class="call bad"><b>The rubber duck does not: measured 0.125, but the simulator
-cannot get below 0.194.</b>
-<p>No contact damping across a range spanning four orders of magnitude reproduces the
-measured rebound for that mesh. The recovered parameter is <em>not physically realisable
-in our simulator</em> — a genuine negative result rather than a fitting failure, and
-exactly the check that treating the simulator as a hard constraint exists to perform.</p>
-</div>
+this is the acceptance test, and the vase passes it. It also passed at the old, wrong
+value of 0.094, which is worth stating plainly: a matching simulation confirms the
+parameter is <em>realisable</em>, not that it is <em>right</em>.</p></div>
+<div class="call bad"><b>The rubber duck does not: measured 0.025, and the simulator
+cannot get below 0.261.</b>
+<p>No contact damping across a range spanning four orders of magnitude reproduces that
+rebound for that mesh. The recovered parameter is <em>not physically realisable in our
+simulator</em> — a genuine negative result rather than a fitting failure, and exactly the
+check that treating the simulator as a hard constraint exists to perform.</p></div>
 
 <h2><span class="num">03</span>All seven objects</h2>
 <p>Three drop heights turn restitution from one number into a relationship:
@@ -383,7 +388,44 @@ whether the observation constrains anything. This comparison runs both estimator
 The apple's 1.100 was the grid maximum, a railed bound reported as a measurement.
 </figcaption></figure>
 
-<h2><span class="num">05</span>The audit that corrected itself</h2>
+<h2><span class="num">05</span>The tracker was aimed by the wrong pipeline</h2>
+<p>Seeds were produced by projecting a body centre computed as <code>pos + vmean</code>,
+the mesh's vertex mean added to its placed position, with the object's <code>rot_z</code>
+never applied. Blender places the origin at <code>pos</code> and rotates it. The two
+conventions disagree by the mesh's own centroid offset, which is near zero for a baseball
+and large for anything asymmetric:</p>
+<div class="tw"><table>
+<thead><tr><th>object</th><th>seed u,v</th><th>true u,v</th><th>offset</th>
+<th>patch half-size</th></tr></thead><tbody>
+<tr><th>ceramic vase</th><td>186, 122</td><td>151, 114</td><td>+35, +8</td><td>28</td></tr>
+<tr><th>rubber duck</th><td>183, 98</td><td>147, 118</td><td>+36, −20</td><td>29</td></tr>
+<tr><th>brass pot</th><td>195, 108</td><td>155, 196</td><td>+40, −88</td><td>41</td></tr>
+<tr><th>book</th><td>208, 135</td><td>181, 138</td><td>+27, −3</td><td>16</td></tr>
+<tr><th>baseball</th><td>154, 135</td><td>152, 137</td><td>+1, −2</td><td>17</td></tr>
+</tbody></table></div>
+<p>Where the offset exceeds the patch half-size, the tracker was following mostly wall.
+The fix is not a better projection but removing the parallel pipeline: the subject is the
+only thing that moves between two stagings of the same object, so differencing two initial
+frames isolates it exactly, <em>in the image we are about to track</em>. Geometry
+conventions cannot disagree with the renderer if the renderer is the source. 18 of 28
+seeds moved by more than 20&nbsp;px.</p>
+
+<h2><span class="num">06</span>The generated video runs about 5× too slow</h2>
+<p>Our simulation finishes falling, bouncing and settling in the first quarter of a clip
+and then sits still, which is why the simulated pane can look inert. That is the
+simulation being <em>right</em>: a 0.18&nbsp;m fall takes 4.6 frames at 24&nbsp;fps.
+Across 90 usable drops the generated fall takes a median <b>5.5× longer</b> than physics
+allows (quartiles 3.2–7.8×), an effective gravity near 0.3&nbsp;m/s².</p>
+<div class="call"><b>This splits the parameters by dimension.</b>
+<p>Restitution is a <em>ratio</em> of two speeds in the same clip, so a uniform time
+rescale cancels and it survives. Friction is <code>|a|/g</code>, which is dimensional:
+stretch time by α and measured acceleration falls by α². Every friction number here is
+therefore suspect in a way the restitutions are not, and no correction is applied because
+we cannot yet show the same stretch applies to horizontal motion. A drop carries its own
+clock — known height, known g — so staging a drop and a slide in the same clip would let
+one calibrate the other.</p></div>
+
+<h2><span class="num">07</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
 measurable motion</del>. That came from tracked centroids, and the tracker fails on these
 clips in a way its own diagnostics cannot see: points stay &ldquo;visible&rdquo; while
@@ -399,8 +441,11 @@ lidded pot into a wide shallow bowl. No density, friction or restitution turns a
 a bowl, so this fails even a plausibility bar. It is asset integrity, not
 identifiability.</p></div>
 
-<h2><span class="num">06</span>Corrections</h2>
+<h2><span class="num">08</span>Corrections</h2>
 <ul>
+<li><b>Three published parameters were artefacts of off-object tracking.</b> The
+wooden bowl's friction and the rubber duck's restitution do not survive; the vase's
+restitution moved from 0.094 to 0.033.</li>
 <li><b>&ldquo;The videos do not contain the experiment&rdquo; was an instrument
 artefact</b>, stated twice on tracker evidence. {moves} of {total} takes move.</li>
 <li><b>The published baseball restitution was 0.000 — no bounce at all.</b> On validated
@@ -418,7 +463,7 @@ requirement.</li>
 &ldquo;true&rdquo; densities from a hardcoded table of textbook guesses.</li>
 </ul>
 
-<h2><span class="num">07</span>Known limits</h2>
+<h2><span class="num">09</span>Known limits</h2>
 <ul>
 <li>The rubber duck's values come from clips in which it re-forms rather than
 translating; appearance matching cannot fully separate &ldquo;translated&rdquo; from
