@@ -445,20 +445,28 @@ frames isolates it exactly, <em>in the image we are about to track</em>. Geometr
 conventions cannot disagree with the renderer if the renderer is the source. 18 of 28
 seeds moved by more than 20&nbsp;px.</p>
 
-<h2><span class="num">07</span>The generated video runs about 5× too slow</h2>
-<p>Our simulation finishes falling, bouncing and settling in the first quarter of a clip
-and then sits still, which is why the simulated pane can look inert. That is the
-simulation being <em>right</em>: a 0.18&nbsp;m fall takes 4.6 frames at 24&nbsp;fps.
-Across 90 usable drops the generated fall takes a median <b>5.5× longer</b> than physics
-allows (quartiles 3.2–7.8×), an effective gravity near 0.3&nbsp;m/s².</p>
-<div class="call"><b>This splits the parameters by dimension.</b>
-<p>Restitution is a <em>ratio</em> of two speeds in the same clip, so a uniform time
-rescale cancels and it survives. Friction is <code>|a|/g</code>, which is dimensional:
-stretch time by α and measured acceleration falls by α². Every friction number here is
-therefore suspect in a way the restitutions are not, and no correction is applied because
-we cannot yet show the same stretch applies to horizontal motion. A drop carries its own
-clock — known height, known g — so staging a drop and a slide in the same clip would let
-one calibrate the other.</p></div>
+<h2><span class="num">07</span>A withdrawn claim about gravity, and what a control showed</h2>
+<p>An earlier version of this page stated that <del>the generated video runs about 5× too
+slow, an effective gravity near 0.3&nbsp;m/s²</del>. That is withdrawn. It came from a
+measurement that fails on a control where the answer is known.</p>
+<p>The control is our own simulation, rendered by Cycles, where gravity <em>is</em>
+9.81&nbsp;m/s² by construction. Running the same measurement on it returned
+−0.31&nbsp;m/s². The fault was window selection: the code took the lowest point of the
+trajectory, which for a vase that lands, rebounds and then topples is well after impact,
+so the parabola was fitted across all three phases.</p>
+<div class="tw"><table>
+<thead><tr><th>measured from</th><th>window</th><th>g</th></tr></thead><tbody>
+<tr><th>world z, no camera</th><td>6 samples (true free fall)</td><td>7.10 m/s²</td></tr>
+<tr><th>image y, through the camera</th><td>6 samples</td><td><b>9.44 m/s²</b></td></tr>
+<tr><th>either</th><td>7 samples (one frame past contact)</td><td>sign flips</td></tr>
+</tbody></table></div>
+<div class="call"><b>With the right window the pipeline recovers 9.44 against a true 9.81 —
+4% — through the camera and the pixel scale.</b>
+<p>So the physics, the projection and the px↔m scale are sound. What is not sound is
+choosing the window: a 0.18&nbsp;m fall is five frames at 24&nbsp;fps, and one frame past
+contact inverts the answer. Until that selection is robust, <b>the generated video's
+gravity is unmeasured</b> — not wrong. Every per-clip figure produced by the old method is
+void.</p></div>
 
 <h2><span class="num">08</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
@@ -496,6 +504,9 @@ different questions.</li>
 length, then again as peak displacement — and wrong both times.</li>
 <li><b>60&nbsp;fps was not the diagnosis for mass</b> and is no longer proposed as a
 requirement.</li>
+<li><b>&ldquo;The generated video runs 5× too slow&rdquo; is withdrawn.</b> The measurement
+returned −0.31&nbsp;m/s² on a control whose true gravity is 9.81. With the window corrected
+the same pipeline reads 9.44.</li>
 <li><b>There is no ground truth in this pipeline.</b> Errors were once quoted against
 &ldquo;true&rdquo; densities from a hardcoded table of textbook guesses.</li>
 </ul>

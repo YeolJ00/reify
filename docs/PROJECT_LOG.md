@@ -2070,3 +2070,46 @@ Worth recording: the physics proxy and the rendered mesh are different represent
 the same object -- 802 spheres versus a textured glTF -- connected only by a transform.
 That is normal practice, and it is exactly where the Y-up/Z-up bug hid for the whole
 project: nothing ever checked that the two representations agreed.
+
+---
+
+## M49 — the gravity claim was an artefact; a control finally exists
+
+**M45's "the generated video runs a median 5.5x slower than physics, effective gravity
+~0.3 m/s^2" is WITHDRAWN.** It came from a measurement that fails on a control where the
+answer is known.
+
+The control is new and only became possible once the rollout could be rendered: our own
+simulation, drawn by Cycles, where gravity IS 9.81 by construction. Running the same
+measurement on it returned **-0.31 m/s^2**.
+
+Decomposing where the error lives:
+
+    measured from                 window                        g
+    world z, no camera            6 samples (true free fall)    7.10 m/s^2
+    image y, through the camera   6 samples                     9.44 m/s^2
+    either                        7 samples (1 past contact)    sign flips
+
+**With the correct window the pipeline recovers 9.44 against a true 9.81 -- 4% -- through
+the camera and the pixel scale.** The physics, the projection and the px<->m conversion are
+all sound. The fault was entirely window selection:
+
+  * the original method took `argmax(y)`, the lowest point of the trajectory. For a vase
+    that lands, rebounds and then topples, that is well after impact, so the parabola was
+    fitted across all three phases;
+  * the first correction used a deceleration threshold and picked 4 frames instead of 5 on
+    the control, giving 13.6 m/s^2 (+39%).
+
+A 0.18 m fall is five frames at 24 fps. One frame either side of the true contact inverts
+the answer, which is why every per-clip figure the old method produced (7% to 88% of g
+across seeds) is void.
+
+**Current honest status: the generated video's gravity is UNMEASURED, not wrong.** Nothing
+should be claimed about it until the free-fall window is selected robustly -- most likely by
+detecting contact from the trajectory's curvature rather than a threshold, and by using the
+0.30 m drops, which give ~6 frames instead of ~5.
+
+The wider lesson is the value of the control. For the whole project the simulation could
+only be inspected through numbers; once it could be rendered, a measurement with a known
+answer became available and immediately falsified a published claim. Any future observable
+should be run against the rendered simulation before it is run against video.
