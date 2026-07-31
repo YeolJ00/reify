@@ -1,13 +1,14 @@
-"""Generated clip beside Newton's own render of the simulation. No masks, no compositing.
+"""Generated clip beside a render of the simulation, in the SAME scene.
 
-Left: what Cosmos produced. Right: newton.viewer.ViewerRTX rendering the simulated mesh at
-the pose our rollout computed -- ray traced, real geometry, real pose. ProbeScene is pure
-Warp and never builds a newton.Model, which is why Newton's viewers had nothing to draw;
-the geometry is loaded into a ModelBuilder purely for display and driven from our rollout.
+Left: what Cosmos produced. Right: the simulated rollout rendered by Blender/Cycles in the
+staged scene -- same table, same HDRI, same camera, same materials -- so the only
+difference between the panes is the physics.
 
-The two panes differ in surroundings (Newton draws its own ground and lighting, not the
-wooden table and HDRI the clip was staged in) and in framing, since ViewerRTX exposes
-pitch/yaw but not the lab camera's 46 degree field of view. Only the motion is comparable.
+Physics and rendering are separate concerns that meet at a single interface: per-frame
+object transforms. Warp integrates a sphere-cover proxy and knows nothing about texture;
+Blender draws the textured glTF and knows nothing about contact. Newton's ViewerRTX renders
+too (nsim_*/) but with its own ground and lighting and no field-of-view control, which makes
+it a solver-debugging view rather than something comparable to a photograph.
 
 Run: python scripts/make_comparison_figs.py         (warp env, no GPU)
 """
@@ -50,13 +51,18 @@ def stack(gen, sim):
         d.rectangle([0, 0, nw, bar - 1], fill=(20, 26, 34))
         d.rectangle([nw + 6, 0, nw * 2 + 6, bar - 1], fill=(14, 124, 147))
         d.text((7, 5), "GENERATED (Cosmos)", fill=(235, 240, 245), font=f)
-        d.text((nw + 13, 5), "SIMULATED (Newton ViewerRTX)", fill=(235, 245, 248), font=f)
+        d.text((nw + 13, 5), "SIMULATED (Newton physics, Cycles render)",
+               fill=(235, 245, 248), font=f)
         out.append(c)
     return out
 
 
 def main():
-    meta = json.loads((LAB / "newton_render.json").read_text())
+    # prefer the Blender renders (same scene as the clip); fall back to ViewerRTX
+    meta = json.loads((LAB / "sim_poses.json").read_text())
+    for k in meta:
+        d = LAB / f"sim_{k}"
+        meta[k]["dir"] = d.name if d.exists() and any(d.glob("f*.png")) else f"nsim_{k}"
     cfg = json.loads((LAB / "lab.json").read_text())
     made = {}
     for key, info in meta.items():

@@ -2042,3 +2042,31 @@ pitch/yaw but not the lab camera's 46 degree field of view. So the panes differ 
 and surroundings; only the motion is comparable. Rendering the rollout in Blender would put
 both panes in the same visual space -- `scripts/blender_render_sim.py` already does this and
 is the obvious next step.
+
+---
+
+## M48 — the stack, stated plainly: physics and rendering meet only at a transform
+
+Comparisons now use the Blender/Cycles renders of the rollout, in the staged scene: same
+table, same HDRI, same camera, same materials as the clip. The only difference between the
+two panes is the physics, which is what makes the comparison legible for the first time.
+
+    layer          holds                                        knows nothing about
+    Warp kernels   802 spheres (vase), poses over time          texture, lighting, camera
+    Newton         Model/State, solvers, collision pipeline     our custom 6-DOF integrator
+    Blender        textured glTF, HDRI, table asset, camera     contact, gradients
+
+They exchange exactly one thing: per-frame object transforms. `export_sim_poses.py` writes
+them, `blender_render_sim.py` drives the scene with them. Nothing else needs to be shared,
+which is why the rollout can be rendered by whichever renderer already has the scene -- and
+the one that already had it was Blender, since it produced every conditioning frame.
+
+Newton's ViewerRTX renders the same rollout (kept, `nsim_*/`) but draws its own ground and
+lighting and exposes pitch/yaw without a field-of-view setting. That makes it a
+solver-debugging view, not something comparable to a photograph. It is the right tool for
+"is the solver doing something sane", the wrong one for "does this match the video".
+
+Worth recording: the physics proxy and the rendered mesh are different representations of
+the same object -- 802 spheres versus a textured glTF -- connected only by a transform.
+That is normal practice, and it is exactly where the Y-up/Z-up bug hid for the whole
+project: nothing ever checked that the two representations agreed.
