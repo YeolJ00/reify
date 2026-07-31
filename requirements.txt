@@ -15,3 +15,7 @@ fast-simplification==0.1.13        # mesh decimation for rigid sim
 #   cotracker  (pip install git+https://github.com/facebookresearch/co-tracker.git)
 #   Cosmos3-Nano backend runs in the isolated `cosmos` conda env instead:
 #     torch cu128 + transformers 5.x + diffusers-from-main (Cosmos3OmniPipeline) + imageio
+# rendering the rollout with newton.viewer.ViewerRTX (headless).
+# ovrtx is the RTX backend; pyglet is its windowing dependency.
+ovrtx==0.4.0.346409
+pyglet==2.1.15
