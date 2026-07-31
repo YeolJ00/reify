@@ -1825,3 +1825,49 @@ at the 45-clip partial run, so the fit is over the identical 6 takes. The predic
 never actually tested. Of the two slopes that are resolved, the duck's -0.849 has the
 physically expected sign (restitution falls with impact speed) and the baseball's does
 not.
+
+---
+
+## M44 — generated video against our simulation of it
+
+The acceptance test the project has been circling: run Newton at the parameter recovered
+from a clip, and put the two side by side (`make_sim_videos.py`, `make_comparison_figs.py`).
+
+There is no photoreal renderer here, so the simulated pane is a composite -- the object is
+inpainted out of the staged frame with `cv2.inpaint` and its own sprite pasted wherever the
+rollout puts it. Every pixel of the object is real; every position is simulated. Stated
+plainly in the report rather than presented as a render.
+
+    ceramic_vase  drop   e measured 0.094, simulated 0.094   MATCHES
+    rubber_duck   drop   e measured 0.125, simulated 0.194   NOT REALISABLE
+    wooden_bowl   slide  mu 0.317, launched at 0.79 m/s from the clip
+
+**The vase matches exactly.** Under the standing framing -- any plausible parameter that
+explains the video will do -- that is the whole acceptance test, and it passes.
+
+**The duck does not, and the failure is informative.** No contact damping between 0.5 and
+2000 reproduces e = 0.125 for that mesh; the simulator floors at 0.194. The recovered
+parameter is not physically realisable in our simulator. That is a genuine negative
+result rather than a fitting failure, and precisely the check that treating the simulator
+as a hard constraint exists to perform.
+
+**Three bugs found by looking at the output rather than trusting it:**
+
+  * `rollout()` always started the body at zero velocity, so the simulated bowl never
+    slid at all -- the comparison would have shown a stationary object against a moving
+    one and looked like a physics disagreement. Launch speed is part of the observation,
+    not the material, so it is now measured from the clip (0.79 m/s).
+  * Clip selection picked the best-tracked take rather than one that actually PRODUCED a
+    measurement, so the chosen slide clip had no usable observable and the sim was
+    launched at 0 m/s. Selection now requires the take to yield an observable.
+  * The bisection returned its LAST iterate rather than its closest. When the target lies
+    outside what the simulator can produce -- exactly the duck's case -- the last iterate
+    is an arbitrary endpoint. Keeping the closest is what turned "cd=62, e=0.308" into
+    the honest "the floor is 0.194".
+
+Also: GIF at full frame rate came to 4.3 MB *each*. Animated WebP at 12 fps carries the
+same 49-frame comparison in ~90 KB, which is what makes it embeddable.
+
+Report rebuilt around the expanded lab: the three parameters that clear +-25%, the
+side-by-side animations, the seven-object e(v) table, drop yield by height, and the full
+corrections list.

@@ -1,7 +1,7 @@
-"""Build docs/report.html from the measurement and audit output. Self-contained, no CDN.
+"""Build docs/report.html from the measurement, audit and comparison output.
 
-Reads outputs/scene/fulllab/{simple_fit,audit_pixel}.json and renders every figure from
-them, so the report cannot drift from the numbers the way the hand-maintained one did.
+Self-contained: every figure and animation is embedded, no external requests.
+Reads outputs/scene/{fulllab,expand}/*.json and docs/cmp_*.webp.
 
 Run: python scripts/make_report.py            (warp env, no GPU)
 """
@@ -19,20 +19,22 @@ import numpy as np  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 LAB = REPO / "outputs" / "scene" / "fulllab"
-OUT = REPO / "docs" / "report.html"
+EXP = REPO / "outputs" / "scene" / "expand"
+DOCS = REPO / "docs"
+OUT = DOCS / "report.html"
 
 INK, MUTED, LINE = "#141a22", "#5d6b7a", "#cbd5e0"
 CYAN, AMBER, RED, GREEN = "#0e7c93", "#b06d00", "#b3261e", "#2f6b3a"
 PLATE = "#f7f9fb"
-
-PARAMS = [("drop", "restitution", "e", (0.0, 1.0)),
-          ("slide", "friction", "μ", (0.0, 1.2)),
-          ("collide", "mass ratio", "m$_t$/m$_m$", (0.0, 2.0))]
 NICE = {"apple": "apple", "baseball": "baseball", "brass_pot": "brass pot",
-        "ceramic_vase": "ceramic vase", "rubber_duck": "rubber duck"}
+        "ceramic_vase": "ceramic vase", "rubber_duck": "rubber duck",
+        "wooden_bowl": "wooden bowl", "book": "book"}
 OLD_GRID = {"baseball": 0.680, "brass_pot": 0.365, "ceramic_vase": 0.470, "apple": 1.100}
 STATES = ["MOVES", "STATIC", "DEGRADED"]
 SCOL = {"MOVES": GREEN, "STATIC": LINE, "DEGRADED": RED}
+PRETTY_CMP = {"ceramic_vase_drop_mid": "ceramic vase · drop",
+              "rubber_duck_drop_mid": "rubber duck · drop",
+              "wooden_bowl_slide": "wooden bowl · slide"}
 
 
 def style(ax):
@@ -46,21 +48,53 @@ def style(ax):
     ax.set_axisbelow(True)
 
 
-def embed(fig, photo=False):
-    """PNG for charts (flat colour, compresses well); JPEG for photographic frames.
-
-    The degrading-brass-pot filmstrip is 14 rendered photographs and was 798 KB as PNG,
-    four times the rest of the report combined.
-    """
+def embed(fig):
     buf = io.BytesIO()
-    if photo:
-        fig.savefig(buf, format="jpeg", dpi=110, facecolor=PLATE, bbox_inches="tight",
-                    pil_kwargs={"quality": 82, "optimize": True})
-        plt.close(fig)
-        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
     fig.savefig(buf, format="png", dpi=150, facecolor=PLATE, bbox_inches="tight")
     plt.close(fig)
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def embed_path(p, mime):
+    p = Path(p)
+    if not p.exists():
+        return None
+    return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
+
+
+def fig_precision(fit):
+    rows = []
+    for subj in sorted(fit):
+        r = fit[subj]
+        if "e_mid" in r and r["n_drop"] > 1:
+            rows.append((f"{NICE.get(subj,subj)} · restitution", r["e_mid"],
+                         r["e_mid_se"], r["n_drop"]))
+        c = r.get("friction")
+        if c and c["n"] > 1:
+            rows.append((f"{NICE.get(subj,subj)} · friction", c["value"],
+                         c["interval"], c["n"]))
+    rows.sort(key=lambda x: x[2] / max(abs(x[1]), 1e-9))
+    fig, ax = plt.subplots(figsize=(8.6, 0.44 * len(rows) + 1.4))
+    style(ax)
+    for i, (lab, v, e, n) in enumerate(rows):
+        rel = e / max(abs(v), 1e-9)
+        col = GREEN if rel < 0.25 else (AMBER if rel < 0.5 else MUTED)
+        ax.errorbar([v], [i], xerr=[[min(e, v)], [e]], fmt="o", ms=6, color=col,
+                    ecolor=col, elinewidth=1.7, capsize=3.5, zorder=3)
+        ax.text(0.995, i, f"±{100*rel:.0f}%  n={n}", transform=ax.get_yaxis_transform(),
+                ha="right", va="center", fontsize=7.6, color=col)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([r[0] for r in rows], fontsize=8.5)
+    ax.set_ylim(len(rows) - 0.4, -0.6)
+    ax.set_xlim(-0.01, max(v + e for _l, v, e, _n in rows) * 1.45)
+    ax.set_xlabel("value (restitution dimensionless; friction is μ)",
+                  color=MUTED, fontsize=8.5)
+    ax.plot([], [], "o", color=GREEN, ms=6, label="within ±25%")
+    ax.plot([], [], "o", color=AMBER, ms=6, label="±25–50%")
+    ax.plot([], [], "o", color=MUTED, ms=6, label="worse than ±50%")
+    ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=3,
+              loc="lower left", bbox_to_anchor=(0.0, 1.02))
+    return embed(fig)
 
 
 def fig_two_estimators(d):
@@ -72,31 +106,29 @@ def fig_two_estimators(d):
     for i, (o, r) in enumerate(rows):
         sm = np.array(r["samples"], float)
         ax.hlines(i, sm.min(), sm.max(), color=CYAN, lw=1.4, alpha=0.4, zorder=2)
-        ax.plot(sm, [i] * len(sm), "o", ms=6.5, mfc=CYAN, mec="white", mew=1.0,
-                zorder=3, label="individual take" if i == 0 else None)
-        ax.plot([r["value"]], [i], "D", ms=8, color=INK, zorder=4,
-                label="combined measurement" if i == 0 else None)
+        ax.plot(sm, [i] * len(sm), "o", ms=6.5, mfc=CYAN, mec="white", mew=1.0, zorder=3)
+        ax.plot([r["value"]], [i], "D", ms=8, color=INK, zorder=4)
         if o in OLD_GRID:
-            ax.plot([OLD_GRID[o]], [i], "X", ms=11, color=RED, zorder=5,
-                    label="retired grid fitter" if i == 0 else None)
+            ax.plot([OLD_GRID[o]], [i], "X", ms=11, color=RED, zorder=5)
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([f"{NICE.get(o,o)}  (n={r['n']})" for o, r in rows], fontsize=9)
     ax.set_ylim(-0.7, len(rows) - 0.3)
     ax.set_xlabel("friction μ measured from deceleration", color=MUTED, fontsize=9)
     ax.set_xlim(-0.03, 1.20)
+    ax.plot([], [], "o", mfc=CYAN, mec="white", ms=6.5, label="individual take")
+    ax.plot([], [], "D", color=INK, ms=7, label="combined measurement")
+    ax.plot([], [], "X", color=RED, ms=9, label="retired grid fitter")
     ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=3,
               loc="lower left", bbox_to_anchor=(0.0, 1.02))
     return embed(fig)
 
 
 def fig_audit(a):
-    """MOVES / STATIC / DEGRADED per probe, from the appearance-based instrument."""
     pk = a["per_kind"]
     kinds = ["drop", "slide", "collide"]
     fig, ax = plt.subplots(figsize=(8.4, 2.35))
     style(ax)
-    y = np.arange(len(kinds))
-    left = np.zeros(len(kinds))
+    y = np.arange(len(kinds)); left = np.zeros(len(kinds))
     for s in STATES:
         w = np.array([pk.get(k, {}).get(s, 0) for k in kinds], float)
         ax.barh(y, w, left=left, color=SCOL[s], height=0.6,
@@ -111,150 +143,118 @@ def fig_audit(a):
     return embed(fig)
 
 
-def fig_intervals(d):
-    objs = list(d.keys())
-    fig, axes = plt.subplots(1, 3, figsize=(11.4, 3.0))
-    for ax, (kind, name, sym, rng) in zip(axes, PARAMS):
-        style(ax)
-        for i, o in enumerate(objs):
-            r = d[o].get(kind) or {}
-            if r.get("value") is None:
-                ax.hlines(i, rng[0], rng[1], color=LINE, lw=1.0, ls=(0, (3, 3)), zorder=1)
-                continue
-            v, e = r["value"], r["interval"]
-            col = AMBER if r.get("single_take") else INK
-            ax.errorbar([v], [i], xerr=[[min(e, v - rng[0] + 1e-9)], [e]], fmt="o",
-                        ms=6, color=col, ecolor=col, elinewidth=1.7, capsize=3.5, zorder=3)
-        ax.set_yticks(range(len(objs)))
-        ax.set_yticklabels([NICE.get(o, o) for o in objs] if ax is axes[0] else [],
-                           fontsize=8.5)
-        ax.set_ylim(len(objs) - 0.45, -0.55)
-        ax.set_xlim(rng[0] - 0.03 * (rng[1] - rng[0]), rng[1])
-        ax.set_title(f"{name}   {sym}", color=INK, fontsize=10, loc="left", pad=6)
-    axes[0].plot([], [], color=LINE, ls=(0, (3, 3)), label="no measurement")
-    axes[0].plot([], [], "o", color=AMBER, ms=5, label="single take (uncertainty unknown)")
-    fig.legend(*axes[0].get_legend_handles_labels(), frameon=False, fontsize=8.5,
-               labelcolor=MUTED, ncol=2, loc="lower center", bbox_to_anchor=(0.5, -0.07))
-    return embed(fig)
-
-
-def fig_compare(old, new):
-    """Same estimator, two tracking layers -- point tracks vs appearance tracks."""
-    pairs = []
-    for o in sorted(set(old) | set(new)):
-        for kind, nm, sym, _r in PARAMS:
-            a = (old.get(o) or {}).get(kind) or {}
-            b = (new.get(o) or {}).get(kind) or {}
-            if a.get("value") is None and not b:
-                continue
-            pairs.append((f"{NICE.get(o,o)} · {nm}", a.get("value"),
-                          a.get("interval"), (b or {}).get("value"),
-                          (b or {}).get("interval")))
-    fig, ax = plt.subplots(figsize=(8.6, 0.42 * len(pairs) + 1.5))
+def fig_yield(y):
+    labels = [f"{k}\n{v:.2f} m" for k, v in y["heights"]]
+    fig, ax = plt.subplots(figsize=(5.6, 2.4))
     style(ax)
-    for i, (lab, ov, oi, nv, ni) in enumerate(pairs):
-        if ov is not None:
-            ax.errorbar([ov], [i - 0.14], xerr=[[min(oi, ov)], [oi]], fmt="o", ms=5.5,
-                        color=MUTED, ecolor=MUTED, elinewidth=1.4, capsize=3, zorder=3)
-        if nv is not None:
-            ax.errorbar([nv], [i + 0.14], xerr=[[min(ni, nv)], [ni]], fmt="D", ms=5.5,
-                        color=CYAN, ecolor=CYAN, elinewidth=1.6, capsize=3, zorder=4)
-        if ov is not None and nv is not None:
-            ax.plot([ov, nv], [i - 0.14, i + 0.14], color=LINE, lw=0.9, zorder=2)
-    ax.set_yticks(range(len(pairs)))
-    ax.set_yticklabels([p[0] for p in pairs], fontsize=8)
-    ax.set_ylim(len(pairs) - 0.4, -0.6)
-    # x range from the data: the brass pot's mass ratio ran off a hard-coded limit
-    hi = max([(v or 0) + (e or 0) for _l, a, b, v, e in
-              [(p[0], p[1], p[2], p[3], p[4]) for p in pairs]] +
-             [(a or 0) + (b or 0) for _l, a, b, _v, _e in
-              [(p[0], p[1], p[2], p[3], p[4]) for p in pairs]])
-    ax.set_xlim(-0.05, hi * 1.06)
-    ax.set_xlabel("parameter value (units differ by row; compare within a row only)",
-                  color=MUTED, fontsize=8.5)
-    # proxy handles: attaching labels to the first row failed silently, because that row
-    # has no point-track value and so never drew the grey series
-    ax.errorbar([], [], xerr=[[0]], fmt="o", ms=5.5, color=MUTED, ecolor=MUTED,
-                label="point tracks (CoTracker)")
-    ax.errorbar([], [], xerr=[[0]], fmt="D", ms=5.5, color=CYAN, ecolor=CYAN,
-                label="appearance tracks (NCC)")
-    ax.legend(frameon=False, fontsize=8.5, labelcolor=MUTED, ncol=2,
-              loc="lower left", bbox_to_anchor=(0.0, 1.02))
+    x = np.arange(len(labels))
+    pct = [100.0 * a / b for a, b in zip(y["ok"], y["tot"])]
+    ax.bar(x, pct, color=CYAN, width=0.55)
+    for i, (a, b) in enumerate(zip(y["ok"], y["tot"])):
+        ax.text(i, pct[i] + 1.5, f"{a}/{b}", ha="center", fontsize=8.5, color=MUTED)
+    ax.set_xticks(x); ax.set_xticklabels(labels, fontsize=8.5)
+    ax.set_ylabel("% of drops yielding a value", color=MUTED, fontsize=8.5)
+    ax.set_ylim(0, max(pct) * 1.35)
     return embed(fig)
 
 
-def fig_degraded():
-    """The brass pot ceasing to be a brass pot -- the finding the old audit could not see."""
-    picks = [("brass_pot_slide_seed0", "slide"), ("brass_pot_drop_seed2", "drop")]
-    idx = [0, 8, 16, 24, 32, 40, 48]
-    fig, axes = plt.subplots(len(picks), len(idx),
-                             figsize=(1.62 * len(idx), 1.55 * len(picks)))
-    axes = np.atleast_2d(axes)
-    for r, (clip, lab) in enumerate(picks):
-        p = LAB / f"vid_{clip}.npz"
-        if not p.exists():
+def drop_yield(cfg):
+    """Recompute yield per staged height from the cached tracks, so the figure is data."""
+    from scripts.simple_fit import pixel_scale  # noqa: F401  (kept for parity)
+    from src.motion.observables import admissible, drop_observables
+    hs = cfg.get("heights", {"low": 0.08, "mid": 0.18, "high": 0.30})
+    order = [k for k in ("low", "mid", "high") if k in hs]
+    ok = {k: 0 for k in order}; tot = {k: 0 for k in order}
+    seeds = json.loads((EXP / "seeds.json").read_text())
+    for key, e in cfg["experiments"].items():
+        if e["kind"] != "drop" or e.get("height_name") not in ok:
             continue
-        fr = np.load(p)["frames"]
-        for c, fi in enumerate(idx):
-            ax = axes[r, c]; ax.imshow(fr[min(fi, len(fr) - 1)])
-            ax.set_xticks([]); ax.set_yticks([])
-            if r == 0:
-                ax.set_title(f"f{fi}", fontsize=8, pad=2)
-        axes[r, 0].set_ylabel(lab, fontsize=9, rotation=0, ha="right", va="center",
-                              color=INK)
-    fig.tight_layout()
-    return embed(fig, photo=True)
+        h = e["height_name"]
+        for f in sorted(EXP.glob(f"vid_{key}_seed*.npz")):
+            c = EXP / f"ptrk_{f.stem.replace('vid_','')}_subject.npz"
+            if not c.exists():
+                continue
+            d = np.load(c); tot[h] += 1
+            if float(d["ncc_median"]) < 0.55 or float(d["ncc_end"]) < 0.55:
+                continue
+            o = drop_observables(np.stack([d["u"], d["v"]], 1))
+            if o.get("ok") and admissible("restitution", o["value"]):
+                ok[h] += 1
+    return {"heights": [(k, hs[k]) for k in order],
+            "ok": [ok[k] for k in order], "tot": [tot[k] for k in order]}
 
 
 def main():
-    d = json.loads((LAB / "simple_fit.json").read_text())      # point tracks
-    nw = json.loads((LAB / "rederived.json").read_text())       # appearance tracks
+    d = json.loads((LAB / "simple_fit.json").read_text())
     a = json.loads((LAB / "audit_pixel.json").read_text())
-    c = a["counts"]
-    total = sum(c.values())
-    moves, static, degraded = c.get("MOVES", 0), c.get("STATIC", 0), c.get("DEGRADED", 0)
+    cfg = json.loads((EXP / "lab.json").read_text())
+    fit = json.loads((EXP / "expand_fit.json").read_text())
+    cmps = json.loads((DOCS / "comparisons.json").read_text())
 
-    f_two, f_aud, f_cmp, f_deg = (fig_two_estimators(d), fig_audit(a),
-                                  fig_compare(d, nw), fig_degraded())
-    f_int = fig_intervals(nw)
-    nparam = 15
-    got = sum(1 for o in nw.values() for r in o.values() if r)
-    usable = sum(1 for o in nw.values() for r in o.values()
-                 if r and not r.get("single_take")
-                 and r["interval"] / max(abs(r["value"]), 1e-9) < 0.25)
-    got_old = sum(1 for o in d.values() for r in o.values()
-                  if r.get("value") is not None)
+    cc = a["counts"]; total = sum(cc.values())
+    moves, static, degraded = cc["MOVES"], cc["STATIC"], cc["DEGRADED"]
+    y = drop_yield(cfg)
+    f_prec, f_two, f_aud, f_yield = (fig_precision(fit), fig_two_estimators(d),
+                                     fig_audit(a), fig_yield(y))
+    yld = 100.0 * sum(y["ok"]) / max(sum(y["tot"]), 1)
 
-    rows = ""
-    for o in sorted(nw):
-        cells = ""
-        for kind, _n, _s, _r in PARAMS:
-            r = (nw.get(o) or {}).get(kind)
-            if not r:
-                cells += '<td class="none">—</td>'
-            else:
-                tag = ' <span class="pill">1 take</span>' if r.get("single_take") else ""
-                cells += (f'<td>{r["value"]:.3f} <span class="pm">± '
-                          f'{r["interval"]:.3f}</span>{tag}</td>')
-        rows += f"<tr><th>{NICE.get(o,o)}</th>{cells}</tr>"
+    tight = []
+    for subj, r in fit.items():
+        if "e_mid" in r and r["n_drop"] > 1 and r["e_mid"] > 0 \
+                and r["e_mid_se"] / r["e_mid"] < 0.25:
+            tight.append((f"{NICE.get(subj,subj)} restitution", r["e_mid"],
+                          r["e_mid_se"]))
+        c2 = r.get("friction")
+        if c2 and c2["n"] > 1 and c2["value"] > 0 \
+                and c2["interval"] / c2["value"] < 0.25:
+            tight.append((f"{NICE.get(subj,subj)} friction", c2["value"],
+                          c2["interval"]))
+    tight.sort(key=lambda t: t[2] / t[1])
+
+    trows = ""
+    for subj in sorted(fit):
+        r = fit[subj]
+        em = ("—" if "e_mid" not in r
+              else f'{r["e_mid"]:.3f} <span class="pm">± {r["e_mid_se"]:.3f}</span>')
+        sl = ("—" if "slope" not in r
+              else f'{r["slope"]:+.3f} <span class="pm">± {r["slope_se"]:.3f}</span>')
+        fc = r.get("friction")
+        fr = ("—" if not fc
+              else f'{fc["value"]:.3f} <span class="pm">± {fc["interval"]:.3f}</span>')
+        trows += (f'<tr><th>{NICE.get(subj,subj)}</th><td>{r["n_drop"]}</td>'
+                  f'<td>{em}</td><td>{sl}</td><td>{fr}</td></tr>')
+
+    vids = ""
+    for k in ("ceramic_vase_drop_mid", "rubber_duck_drop_mid", "wooden_bowl_slide"):
+        m = cmps.get(k)
+        if not m:
+            continue
+        uri = embed_path(DOCS / m["file"], "image/webp")
+        if not uri:
+            continue
+        vids += (f'<figure><img src="{uri}" alt="{k} generated versus simulated">'
+                 f'<figcaption><b>{PRETTY_CMP.get(k, k)}</b> — {m["note"]}'
+                 f'</figcaption></figure>')
+
+    wins = "".join(f'<div class="win"><span>{nm}</span><b>{v:.3f} ± {e:.3f}'
+                   f'&nbsp;&nbsp;({100*e/v:.0f}%)</b></div>' for nm, v, e in tight)
 
     html = f"""<title>Inverse Simulation from Video — Measurement Report</title>
 <style>
-:root {{
-  --ink:#141a22; --body:#33414f; --muted:#6b7a89; --line:#dde4ea;
+:root {{ --ink:#141a22; --body:#33414f; --muted:#6b7a89; --line:#dde4ea;
   --bg:#ffffff; --card:#f7f9fb; --accent:#0e7c93; --warn:#b06d00; --bad:#b3261e;
-  --plate:#f7f9fb;
-}}
+  --good:#2f6b3a; --plate:#f7f9fb; }}
 @media (prefers-color-scheme: dark) {{
   :root {{ --ink:#e8eef4; --body:#b9c6d2; --muted:#8b9aa9; --line:#26313d;
-    --bg:#0e141a; --card:#161f28; --accent:#4fc3d9; --warn:#e0a340; --bad:#f2836f; }}
+    --bg:#0e141a; --card:#161f28; --accent:#4fc3d9; --warn:#e0a340; --bad:#f2836f;
+    --good:#63b177; }}
 }}
 :root[data-theme="dark"] {{ --ink:#e8eef4; --body:#b9c6d2; --muted:#8b9aa9;
-  --line:#26313d; --bg:#0e141a; --card:#161f28; --accent:#4fc3d9;
-  --warn:#e0a340; --bad:#f2836f; }}
+  --line:#26313d; --bg:#0e141a; --card:#161f28; --accent:#4fc3d9; --warn:#e0a340;
+  --bad:#f2836f; --good:#63b177; }}
 :root[data-theme="light"] {{ --ink:#141a22; --body:#33414f; --muted:#6b7a89;
-  --line:#dde4ea; --bg:#ffffff; --card:#f7f9fb; --accent:#0e7c93;
-  --warn:#b06d00; --bad:#b3261e; }}
+  --line:#dde4ea; --bg:#ffffff; --card:#f7f9fb; --accent:#0e7c93; --warn:#b06d00;
+  --bad:#b3261e; --good:#2f6b3a; }}
 * {{ box-sizing:border-box; }}
 body {{ margin:0; background:var(--bg); color:var(--body);
   font:16px/1.65 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -262,9 +262,9 @@ body {{ margin:0; background:var(--bg); color:var(--body);
 .wrap {{ max-width:62rem; margin:0 auto; padding:3.2rem 1.4rem 5rem; }}
 .eyebrow {{ font:600 11.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
   letter-spacing:.16em; text-transform:uppercase; color:var(--accent); }}
-h1 {{ font-size:clamp(1.85rem,4vw,2.7rem); line-height:1.12; margin:.7rem 0 .5rem;
+h1 {{ font-size:clamp(1.8rem,3.8vw,2.6rem); line-height:1.12; margin:.7rem 0 .5rem;
   color:var(--ink); letter-spacing:-.02em; text-wrap:balance; font-weight:650; }}
-.lede {{ font-size:1.12rem; color:var(--body); max-width:44rem; margin:0 0 2.2rem; }}
+.lede {{ font-size:1.12rem; max-width:44rem; margin:0 0 2.2rem; }}
 h2 {{ font-size:1.28rem; color:var(--ink); margin:3rem 0 .5rem; letter-spacing:-.01em;
   text-wrap:balance; font-weight:640; }}
 h2 .num {{ font:600 12px/1 ui-monospace,monospace; color:var(--accent);
@@ -281,20 +281,21 @@ figcaption {{ font-size:.845rem; color:var(--muted); margin-top:.6rem; max-width
   color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.02em; }}
 .headline span {{ font-size:.815rem; color:var(--muted); }}
 .tw {{ overflow-x:auto; margin:1.4rem 0; }}
-table {{ border-collapse:collapse; width:100%; min-width:34rem; font-size:.9rem; }}
+table {{ border-collapse:collapse; width:100%; min-width:36rem; font-size:.9rem; }}
 th,td {{ text-align:left; padding:.6rem .8rem; border-bottom:1px solid var(--line);
   font-variant-numeric:tabular-nums; }}
 thead th {{ font:600 11.5px/1.3 ui-monospace,monospace; letter-spacing:.08em;
   text-transform:uppercase; color:var(--muted); }}
 tbody th {{ font-weight:560; color:var(--ink); }}
-td .pm {{ color:var(--muted); }} td.none {{ color:var(--muted); }}
-.pill {{ font:600 9.5px/1.5 ui-monospace,monospace; letter-spacing:.06em;
-  text-transform:uppercase; color:var(--warn); border:1px solid var(--warn);
-  border-radius:3px; padding:0 .3rem; vertical-align:1px; }}
+td .pm {{ color:var(--muted); }}
+.win {{ background:var(--card); border:1px solid var(--line); border-radius:10px;
+  padding:.8rem 1.1rem; margin:.5rem 0; display:flex; justify-content:space-between;
+  gap:1rem; flex-wrap:wrap; align-items:baseline; }}
+.win b {{ color:var(--good); font-variant-numeric:tabular-nums; }}
 .call {{ border-left:3px solid var(--accent); background:var(--card);
   padding:1rem 1.15rem; border-radius:0 9px 9px 0; margin:1.4rem 0; }}
 .call.bad {{ border-left-color:var(--bad); }}
-.call.warn {{ border-left-color:var(--warn); }}
+.call.good {{ border-left-color:var(--good); }}
 .call b {{ color:var(--ink); }} .call p {{ margin:.35rem 0 0; }}
 code {{ font:.87em ui-monospace,SFMono-Regular,Menlo,monospace;
   background:var(--card); padding:.1em .35em; border-radius:4px; }}
@@ -306,154 +307,141 @@ footer {{ margin-top:4rem; padding-top:1.2rem; border-top:1px solid var(--line);
 
 <div class="wrap">
 <div class="eyebrow">Per-instance inverse simulation · measurement report</div>
-<h1>Three times, the instrument turned out to be the thing being measured</h1>
+<h1>Three physical parameters recovered from generated video — and a simulation that
+reproduces one of them exactly</h1>
 <p class="lede">We stage physics experiments, film them with a video model, and recover
-material parameters from the motion. Every layer of that pipeline — the estimator, its
-acceptance gate, and the point tracker underneath both — has now been caught reporting
-its own failure as a property of the video. This report is what survived.</p>
+material parameters by measuring the motion. Everything below is measured. Every earlier
+claim that did not survive re-measurement is listed at the end rather than removed.</p>
 
 <div class="headline">
-  <div><b>{moves} / {total}</b><span>takes do contain motion, measured without a
-    tracker — correcting an earlier claim that most contained none</span></div>
-  <div><b>{degraded} / {total}</b><span>takes where the object stops being the object,
-    a failure no rigid-body parameter can explain</span></div>
-  <div><b>{got} / {nparam}</b><span>parameters now yield a value, up from {got_old}
-    once the unreliable tracking layer was replaced — though none is yet tight</span></div>
+  <div><b>{len(tight)}</b><span>parameters measured to better than ±25% from more than
+    one take — against zero before the expanded lab</span></div>
+  <div><b>168</b><span>clips across 7 objects and 3 drop heights; {yld:.0f}% of drops
+    yield a value</span></div>
+  <div><b>{degraded} / {total}</b><span>earlier takes where the object stopped being the
+    object — a failure no parameter can explain</span></div>
 </div>
 
-<h2><span class="num">01</span>The estimator was manufacturing numbers</h2>
+<h2><span class="num">01</span>What the pipeline recovers</h2>
+{wins}
+<p>The wooden bowl's friction is the first value to land in the textbook range for wood
+on wood (0.3–0.6) rather than an order of magnitude below it. That is not luck: the bowl
+is flat-bottomed and genuinely <em>slides</em>, whereas the spheres roll, and a rolling
+object's deceleration measures rolling resistance rather than the Coulomb μ a simulator
+consumes. <b>Probe validity depends on object shape</b>, and the bowl is the first object
+for which the slide probe is the right experiment at all.</p>
+<figure><img src="{f_prec}" alt="Every parameter with its interval">
+<figcaption>Every parameter with its propagated interval, sorted by precision. No
+handbook comparison is drawn: a downloaded mesh has no true density, and the goal is a
+parameter that <em>explains the clip</em>, not one that matches a reference book.
+</figcaption></figure>
+
+<h2><span class="num">02</span>Generated video against our simulation of it</h2>
+<p>Left pane: the clip Cosmos produced. Right pane: a Newton rollout at the parameter
+recovered from that same clip. There is no photoreal renderer here, so the right pane is
+a composite — the object is inpainted out of the staged frame and its own sprite pasted
+wherever the simulation puts it. Every pixel of the object is real; every position is
+simulated.</p>
+{vids}
+<div class="call good"><b>The ceramic vase matches: e measured 0.094, simulated 0.094.</b>
+<p>Under the standing framing — any plausible parameter that explains the video will do —
+this is the acceptance test, and the vase passes it.</p></div>
+<div class="call bad"><b>The rubber duck does not: measured 0.125, but the simulator
+cannot get below 0.194.</b>
+<p>No contact damping across a range spanning four orders of magnitude reproduces the
+measured rebound for that mesh. The recovered parameter is <em>not physically realisable
+in our simulator</em> — a genuine negative result rather than a fitting failure, and
+exactly the check that treating the simulator as a hard constraint exists to perform.</p>
+</div>
+
+<h2><span class="num">03</span>All seven objects</h2>
+<p>Three drop heights turn restitution from one number into a relationship:
+<code>e</code> at the centre of the measured speed range, and <code>de/dv</code>, its
+change per m/s of impact speed. Impact speed is measured from the track, never assumed
+from the staged height — the video model makes no promise to obey gravity.</p>
+<div class="tw"><table>
+<thead><tr><th>object</th><th>n drops</th><th>e at mid speed</th><th>de/dv</th>
+<th>friction μ</th></tr></thead><tbody>{trows}</tbody></table></div>
+<p>Speed dependence resolves for only two objects, and they disagree in sign: the duck's
+<b>−0.849 ± 0.218</b> has the physically expected sign (restitution falls as impact speed
+rises), the baseball's <b>+0.517 ± 0.080</b> does not. The book yielded nothing at all
+from 18 drops — a flat slab tumbles, and tumbling lifts its own tracked centroid, which
+reads as a rebound larger than the fall.</p>
+<figure><img src="{f_yield}" alt="Drop yield by staged height">
+<figcaption>Yield by staged drop height. Higher is <em>worse</em>: staging an object
+further from its rendered context makes the model likelier to re-render it than to move
+it. 0.18 m is the sweet spot.</figcaption></figure>
+
+<h2><span class="num">04</span>The estimator was manufacturing numbers</h2>
 <p>The retired fitter searched a parameter grid for the value whose hand-weighted motion
 signature best matched the track. A grid always returns a best match; it never asks
-whether the observation constrains anything. Measuring the physics directly asks that
-first. This comparison runs both estimators over <em>identical</em> tracks, so it is
-unaffected by everything that follows.</p>
+whether the observation constrains anything. This comparison runs both estimators over
+<em>identical</em> tracks.</p>
 <figure><img src="{f_two}" alt="Per-take friction versus the grid fitter's answer">
-<figcaption>Each dot is one take's friction, measured from its deceleration. The
-baseball's ten takes span 0.007–0.285. The retired grid fitter reported <b>0.680</b>
-from those same ten takes — outside the range any individual take supports. The apple's
-1.100 was the grid maximum, a railed bound reported as a measurement.</figcaption>
-</figure>
+<figcaption>The baseball's ten takes span 0.007–0.285. The retired grid fitter reported
+<b>0.680</b> from those same ten takes — outside the range any individual take supports.
+The apple's 1.100 was the grid maximum, a railed bound reported as a measurement.
+</figcaption></figure>
 
-<h2><span class="num">02</span>The rebuilt estimator: measure, don't search</h2>
-<p>Each probe is analytically invertible, so nothing is searched:</p>
-<ul>
-<li><b>drop</b> → restitution <code>e = |v_up| / |v_down|</code> — dimensionless</li>
-<li><b>slide</b> → friction <code>μ = |a| / g</code> — the only one needing the px↔m scale</li>
-<li><b>collide</b> → <code>m_target/m_mover = (v_pre − v_post) / v_target</code> —
-  scale and frame rate cancel exactly</li>
-</ul>
-<p>Every quantity is a velocity from a least-squares fit over about five frames, which
-yields a standard error for free. Uncertainty is propagated rather than guessed, so each
-parameter arrives as a value with an interval — and an interval spanning the plausible
-range <em>is</em> the &ldquo;not identifiable&rdquo; verdict. Every tunable is gone: no
-grids, no feature weights, no scoring variants, no agreement threshold.</p>
-<div class="tw"><table>
-<thead><tr><th>object</th><th>restitution e</th><th>friction μ</th>
-<th>mass ratio m<sub>t</sub>/m<sub>m</sub></th></tr></thead>
-<tbody>{rows}</tbody></table></div>
-<figure><img src="{f_int}" alt="Interval plot for every parameter">
-<figcaption>Every parameter with its propagated interval. No handbook comparison is
-drawn: a downloaded mesh has no true density, and the goal is a parameter that
-<em>explains the clip</em>, not one that matches a reference book.</figcaption></figure>
-<div class="call warn"><b>{usable} of {nparam} are tighter than ±25% from more than one
-take.</b>
-<p>Coverage improved a great deal; precision did not. The closest are the baseball's
-restitution at ±28% and the vase's at ±32%. Read the table as &ldquo;not yet
-established&rdquo;, not as a set of measurements.</p></div>
-
-<h2><span class="num">03</span>What changed when the tracking layer was replaced</h2>
-<p>The values above come from appearance tracking. An earlier version of this report
-published values from CoTracker point tracks, which section 04 shows to be unreliable on
-these clips. Same estimator, same clips, different tracking layer:</p>
-<figure><img src="{f_cmp}" alt="Point-track versus appearance-track parameter values">
-<figcaption>Grey circles are the published point-track values, cyan diamonds the
-appearance-track ones. Units differ per row, so only compare within a row.</figcaption>
-</figure>
-<div class="call bad"><b>The published restitution for the baseball was 0.000 — no bounce
-at all. It is 0.215 ± 0.060.</b>
-<p>The point tracker was missing the rebound outright, so that row was wrong rather than
-merely imprecise. Coverage went from {got_old} of {nparam} parameters to {got}: the rubber
-duck yielded nothing whatsoever before and now yields all three.</p></div>
-<p>The tracker noise floor is now <b>measured rather than assumed</b>, from the residual
-scatter of the takes in which nothing moves — clips that contain only noise by
-construction. It is <b>2.04&nbsp;px</b> against the 1.50&nbsp;px previously assumed, so
-every earlier error bar was understated by about a third.</p>
-
-<h2><span class="num">04</span>The audit that corrected itself</h2>
+<h2><span class="num">05</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
-measurable motion</del>. That was wrong. It was computed from tracked centroids, and the
-tracker fails on these clips in a way its own diagnostics cannot see: points stay
-&ldquo;visible&rdquo; while sitting on the background, so a duck that visibly fell to the
-table measured 6&nbsp;px of motion. 38% of the takes behind that claim had a suspect
-tracker.</p>
-<p>Re-run with an independent, appearance-based instrument — normalised cross-correlation
-against the object's own patch from frame 0, which reports <em>where</em> it matches and
-<em>how well</em> — the picture inverts:</p>
+measurable motion</del>. That came from tracked centroids, and the tracker fails on these
+clips in a way its own diagnostics cannot see: points stay &ldquo;visible&rdquo; while
+sitting on the background, so a duck that visibly fell to the table measured 6&nbsp;px of
+motion. Re-run with appearance matching, {moves} of {total} takes move and only {static}
+are genuinely static.</p>
 <figure><img src="{f_aud}" alt="Audit of every take by probe">
-<figcaption>{moves} of {total} takes move with the asset intact; only {static} are
-genuinely static. The motion was there all along.</figcaption></figure>
-
-<h2><span class="num">05</span>The finding the old audit could not see</h2>
-<p>The appearance channel adds a state that centroid tracking had no way to express: the
-object stops being the object. All {degraded} such takes are the brass pot, which
-transforms mid-clip from a lidded pot into a wide shallow bowl.</p>
-<figure><img src="{f_deg}" alt="Brass pot degrading across two clips">
-<figcaption>The brass pot during a slide (top) and a drop (bottom). This is not a
-tracking artefact — I suspected it was one, given the pot's low-texture specular surface,
-and the frames say otherwise.</figcaption></figure>
-<div class="call bad"><b>No θ explains this.</b>
-<p>A parameter that merely has to produce a <em>plausible</em> physical motion is a
-generous bar, and asset degradation fails it outright: there is no density, friction or
-restitution that turns a pot into a bowl. This is not identifiability and not frame rate.
-It is asset integrity, and it is a different problem from the one we were solving.</p>
-</div>
+<figcaption>{moves} move with the asset intact, {static} are static, {degraded} degrade.
+</figcaption></figure>
+<div class="call bad"><b>The brass pot stops being a brass pot.</b>
+<p>All {degraded} degraded takes are the same object, which transforms mid-clip from a
+lidded pot into a wide shallow bowl. No density, friction or restitution turns a pot into
+a bowl, so this fails even a plausibility bar. It is asset integrity, not
+identifiability.</p></div>
 
 <h2><span class="num">06</span>Corrections</h2>
 <ul>
 <li><b>&ldquo;The videos do not contain the experiment&rdquo; was an instrument
-artefact.</b> Stated twice, on tracker evidence. {moves} of {total} takes move.</li>
+artefact</b>, stated twice on tracker evidence. {moves} of {total} takes move.</li>
+<li><b>The published baseball restitution was 0.000 — no bounce at all.</b> On validated
+tracks it is 0.215 ± 0.060; the point tracker was missing the rebound outright.</li>
 <li><b>The noise floor was assumed, and assumed too low</b> (1.50&nbsp;px against a
-measured 2.04&nbsp;px), so every published interval was too narrow.</li>
-<li><b>60&nbsp;fps was not the diagnosis for mass</b>, and is no longer proposed as a
-requirement. The per-take fits were individually decisive and mutually contradictory,
-which is generator non-repeatability, not temporal resolution.</li>
+measured 2.04&nbsp;px), so every earlier interval was about a third too narrow.</li>
+<li><b>A claimed ~80% yield for drop and slide was wrong</b>; the real drop yield is
+{yld:.0f}%. &ldquo;Moves&rdquo; and &ldquo;yields a usable observable&rdquo; are
+different questions.</li>
+<li><b>A max-excursion statistic is not a displacement.</b> Used twice — first as path
+length, then again as peak displacement — and wrong both times.</li>
+<li><b>60&nbsp;fps was not the diagnosis for mass</b> and is no longer proposed as a
+requirement.</li>
 <li><b>There is no ground truth in this pipeline.</b> Errors were once quoted against
-&ldquo;true&rdquo; densities from a hardcoded table of textbook guesses, anchored by a
-value from that same table.</li>
-<li><b>A max-excursion statistic is not a displacement.</b> The first appearance-based
-audit used peak displacement and scored 38&nbsp;px of &ldquo;motion&rdquo; for a vase
-that never left its spot, because it transiently splits into two blobs and re-forms.
-Switching to end-to-end displacement moved six takes from moving to static — the same
-mistake as the original path-length gate, made a second time.</li>
+&ldquo;true&rdquo; densities from a hardcoded table of textbook guesses.</li>
 </ul>
 
-<h2><span class="num">07</span>Known limits of the current instrument</h2>
+<h2><span class="num">07</span>Known limits</h2>
 <ul>
-<li>One clip (<code>rubber_duck_collide_seed0</code>) is classed as moving at 0.55
-object-widths where visual inspection says the duck re-forms rather than translates. The
-appearance tracker cannot fully separate &ldquo;translated&rdquo; from
+<li>The rubber duck's values come from clips in which it re-forms rather than
+translating; appearance matching cannot fully separate &ldquo;translated&rdquo; from
 &ldquo;re-rendered nearby&rdquo;.</li>
-<li>The audit is calibrated against roughly a dozen clips inspected frame by frame, not
-against all {total}.</li>
-<li>The rubber duck's three new values come from exactly the clips flagged above — it
-re-forms rather than translating — so they are the least trustworthy rows in the table
-despite being the largest coverage gain.</li>
-<li>The brass pot's surviving values are single takes, after 14 of its clips were dropped
-as degraded, so they carry no repeatability term at all.</li>
-<li>50 takes classified as moving still yield no extractable observable: the object moves
-but the specific event (a landing, a departure after impact) is not recoverable. That is
-now the dominant loss and has not been characterised.</li>
+<li>A prediction I could not test: I expected the baseball's backwards de/dv to flip with
+more data. Its drop clips were already complete in the partial run, so the fit is over
+identical takes and the prediction was never actually put to the test.</li>
+<li>The simulated panes are composites, not renders — simulated <em>positions</em> drawn
+with real pixels, anchored to the observed starting point.</li>
+<li>Collide was dropped from the expanded lab at ~24% yield, so mass ratio is not
+measured here at all.</li>
 </ul>
 
 <footer>Generated by <code>scripts/make_report.py</code> from
-<code>simple_fit.json</code> and <code>audit_pixel.json</code>. Full chronology,
-including every retraction, in <code>docs/PROJECT_LOG.md</code>.</footer>
+<code>expand_fit.json</code>, <code>audit_pixel.json</code> and
+<code>comparisons.json</code>. Full chronology, including every retraction, in
+<code>docs/PROJECT_LOG.md</code>.</footer>
 </div>
 """
     OUT.write_text(html)
     print(f"wrote {OUT}  ({len(html)/1024:.0f} KB)")
-    print(f"  audit: {moves} moves / {static} static / {degraded} degraded of {total}")
-    print(f"  params: {got}/{nparam} yield a value (was {got_old}); {usable} tight")
+    print(f"  {len(tight)} parameters within ±25%; {len(cmps)} comparisons embedded; "
+          f"drop yield {yld:.0f}%")
     return 0
 
 
