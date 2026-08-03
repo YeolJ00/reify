@@ -23,6 +23,7 @@ contributes nothing rather than contributing a wrong x-value.
 Run: python scripts/fit_expand.py            (warp env, no GPU)
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -37,7 +38,9 @@ from src.motion.observables import (admissible, combine, drop_observables,  # no
                                     polyfit_se, slide_observables)
 from src.motion.patch_track import track_patch  # noqa: E402
 
-LAB = REPO / "outputs" / "scene" / "expand"
+# LAB lets this run against a parallel lab (expand_neg/, regenerated with the vendor
+# negative prompt) so the two can be compared at n=168 rather than the underpowered 12.
+LAB = Path(os.environ.get("LAB") or (REPO / "outputs" / "scene" / "expand"))
 FPS = 24.0
 NCC_OK = 0.55
 SEARCH = 140

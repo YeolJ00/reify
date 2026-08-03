@@ -73,6 +73,31 @@ def polyfit_se(t, x, deg, sigma_floor=SIGMA_FLOOR_PX):
     return beta, np.sqrt(np.clip(np.diag(cov), 0.0, None))
 
 
+def _note(report, key, value):
+    if report is not None:
+        report[key] = value
+
+
+def _clean(y, smooth=3):
+    """Interpolate gaps and lightly smooth a 1-D trace.
+
+    Smoothing matters here because the observable is now a PEAK of the per-frame
+    difference: a single noisy sample would otherwise become the "peak" speed.
+    """
+    y = np.asarray(y, float)
+    idx = np.arange(len(y))
+    m = np.isfinite(y)
+    if m.sum() < 4:
+        return None
+    y = np.interp(idx, idx[m], y[m])
+    if smooth > 1:
+        k = np.ones(smooth) / smooth
+        y = np.convolve(y, k, mode="same")
+        y[:smooth] = y[smooth]
+        y[-smooth:] = y[-smooth - 1]
+    return y
+
+
 def _valid(xy):
     xy = np.asarray(xy, float)
     ok = ~np.isnan(xy[:, 0]) & ~np.isnan(xy[:, 1])
@@ -152,39 +177,79 @@ def significant(v, se, k=SIG_K):
 # drop -> restitution
 # --------------------------------------------------------------------------
 
-def drop_observables(cen, win=WIN):
-    """|v_up|/|v_down| across the landing. Image y is positive DOWNWARD."""
+def first_contact(y):
+    """Index of first contact: the frame of PEAK DOWNWARD SPEED.
+
+    During free fall the downward speed only increases, so its maximum is the last
+    instant before the surface starts pushing back. This needs no threshold and, unlike
+    the lowest point of the trajectory, it is unaffected by whatever happens after the
+    bounce.
+
+    The previous code used argmax(y), the trajectory's lowest point. For a vase that
+    lands, rebounds and then TOPPLES, the lowest point is well after impact -- so the
+    velocities either side of it straddled the topple instead of the bounce, and the
+    "restitution" being matched was not a restitution. The same mistake made a control
+    with a known g of 9.81 measure as -0.31 m/s^2.
+    """
+    y = np.asarray(y, float)
+    v = np.diff(y)                       # +ve = moving down
+    ok = np.isfinite(v)
+    if ok.sum() < 4:
+        return None
+    idx = np.where(ok)[0]
+    return int(idx[np.argmax(v[idx])])
+
+
+def drop_observables(cen, win=WIN, report=None):
+    """Restitution across FIRST CONTACT, from peak speeds. Image y is positive DOWNWARD.
+
+    e = |peak upward speed just after contact| / |peak downward speed at contact|
+
+    Peak speeds rather than least-squares fits over a window: a bounce at 24 fps lasts one
+    to three frames, and the old 6-frame fit averaged the rebound together with the fall
+    that follows, returning a net downward velocity. On a clean sphere whose true
+    restitution is 0.75 it reported e = 0.
+    """
     xy, ok = _valid(cen)
     if ok.sum() < 8:
+        _note(report, "reject", "too few tracked frames")
         return {"ok": False, "why": "too few tracked frames"}
     y = np.where(ok, xy[:, 1], np.nan)
-    n = len(y)
-    hit = int(np.nanargmax(y[: max(int(0.85 * n), 6)]))    # lowest point = landing
-    if hit < 3 or hit > n - 4:
-        return {"ok": False, "why": "no landing inside the clip"}
-    down = np.array([0.0, 1.0])
-    v_pre, s_pre = velocity(xy, ok, hit - win, hit, down)
-    v_post, s_post = velocity(xy, ok, hit, hit + win, down)
-    if not significant(v_pre, s_pre):
-        return {"ok": False, "why": f"no fall: v={v_pre:.2f}+-{s_pre:.2f} px/frame",
-                "v_pre": v_pre, "v_pre_se": s_pre}
-    # v_post is negative when it rebounds; a non-significant v_post is a genuine
-    # measurement of "did not bounce", not a failure
+    # NOT smoothed. A bounce lasts one to three frames at 24 fps, so any smoothing
+    # attenuates the very peak being measured: on the simulator, where truth is known,
+    # smoothing took the mean absolute error from 0.014 to 0.162, and on real tracks it
+    # pulled the median restitution from 0.300 down to 0.042. Smoothing does suppress
+    # impossible e>1 readings (35 -> 19 of ~145), but it buys that by biasing every good
+    # value downward sevenfold. Bad takes are rejected by the admissibility check
+    # instead; good ones are left alone.
+    ys = _clean(y, smooth=1)
+    if ys is None:
+        _note(report, "reject", "trace could not be cleaned")
+        return {"ok": False, "why": "trace could not be cleaned"}
+    n = len(ys)
+    hit = first_contact(ys)
+    if hit is None or hit < 2 or hit > n - 4:
+        _note(report, "reject", "no contact inside the clip")
+        return {"ok": False, "why": "no contact inside the clip"}
+
+    v = np.diff(ys)                                   # +ve = down
+    v_pre = float(v[hit])
+    tail = v[hit + 1: min(hit + 5, len(v))]
+    v_post = float(tail.min()) if len(tail) else 0.0  # most negative = fastest upward
+    sig = float(SIGMA_FLOOR_PX)
+    _note(report, "v_pre", v_pre); _note(report, "v_post", v_post)
+    if v_pre <= 3.0 * sig:
+        _note(report, "reject", f"no fall: v={v_pre:.2f} px/frame")
+        return {"ok": False, "why": f"no fall: v={v_pre:.2f} px/frame", "v_pre": v_pre}
     if v_post >= 0:
-        # Still descending (or exactly stationary) after the deepest point: no rebound
-        # occurred. e = 0 is the measurement and its error bar is what the noise allows.
-        # The >= matters: a v_post of exactly zero used to fall through to the rebound
-        # branch and divide by it.
-        e, se = 0.0, float(s_post / abs(v_pre))
+        e, se = 0.0, sig / v_pre                      # never came back up
     else:
-        e = abs(v_post) / abs(v_pre)
-        se = abs(e) * np.hypot(s_post / v_post, s_pre / v_pre)
-    return {"ok": True, "value": float(e), "se": float(se), "hit": hit,
-            "kind": "restitution",
-            "v_pre": v_pre, "v_pre_se": s_pre, "v_post": v_post, "v_post_se": s_post,
-            # distinguishes "measured a bounce" from "measured no bounce": both are
-            # results, but only the first constrains restitution away from zero
-            "bounced": bool(significant(v_post, s_post) and v_post < 0)}
+        e = -v_post / v_pre
+        se = abs(e) * float(np.hypot(sig / abs(v_post), sig / v_pre))
+    _note(report, "reject", None)
+    return {"ok": True, "value": float(e), "se": float(se), "hit": int(hit),
+            "kind": "restitution", "v_pre": v_pre, "v_post": v_post,
+            "bounced": bool(v_post < -3.0 * sig)}
 
 
 # --------------------------------------------------------------------------

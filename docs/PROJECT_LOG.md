@@ -2270,3 +2270,48 @@ the physical restitution; the objective was matching the wrong quantity.
 This is the third time a control with a known answer has falsified something (after the
 sideways meshes and the gravity claim). A single sphere has an analytic rebound; nothing
 about this needed video, tracking, or a mesh.
+
+---
+
+## M54 — the objective could not measure restitution at all
+
+The contact fix (M53) made the simulator honest but left the thing being matched wrong.
+Validated against a control where truth is known -- a clean sphere, no mesh, no toppling,
+restitution read from world z -- the old objective was not merely biased:
+
+    cd     true e    OLD objective    NEW objective
+     1      1.079        0.439           1.057
+     2      0.983        0.302           0.961
+     5      0.746        0.000           0.728
+    10      0.477        0.000           0.464
+    20      0.188        0.000           0.182
+    40      0.037        0.000           0.035
+                      MAE 0.44        MAE 0.014, monotonic
+
+**It returned 0.000 for every cd >= 5.** It could not distinguish cd=5 from cd=40, so the
+fit was unconstrained over most of the search range -- which is exactly how it settled on
+cd=5 (0.14x critical damping, visibly bouncy) while reporting e=0.036.
+
+Two bugs, the same shape as the gravity error:
+
+  * `hit = argmax(y)` took the trajectory's LOWEST POINT. For a vase that lands, rebounds
+    and topples, that is long after impact, so the velocities either side straddled the
+    topple rather than the bounce. Now `first_contact()` takes the frame of PEAK DOWNWARD
+    SPEED, which is first contact by definition and needs no threshold.
+  * `WIN=5` least-squares fits averaged a one-to-three frame bounce together with the fall
+    that follows, netting out downward. Now the observable is peak speed in, peak speed
+    out.
+
+**A smoothing trap, rejected on purpose.** Smoothing the trace suppresses physically
+impossible e>1 readings (35 -> 19 of ~145 real drops) and looks like an improvement. It is
+not: it also drags the median restitution of every good measurement from 0.300 to 0.042,
+a factor of seven, and takes the control's MAE from 0.014 to 0.162. A cleaner distribution
+bought by attenuating the signal is not cleaner. Bad takes are rejected by the
+admissibility check; good ones are left alone.
+
+**Measurement-quality number that falls out:** 24% of real drops return e > 1 and are
+rejected. That is the honest cost of reading restitution from a 24 fps projected centroid,
+and no amount of code fixes it.
+
+Expect the recovered restitutions to move up substantially from 0.033 -- that value came
+from an objective that could not measure restitution.
