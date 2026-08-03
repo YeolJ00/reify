@@ -19,12 +19,33 @@ from pathlib import Path
 
 os.environ.setdefault("HF_HOME", "/home/nas5/jooyeolyun/hf_cache")
 
+import json
+from pathlib import Path
+
 import numpy as np
 
 STATIC_CAMERA_SUFFIX = (
     " The camera is completely static, locked on a tripod, no camera motion, no zoom, "
     "no pan, fixed framing for the entire video."
 )
+
+# NVIDIA ships a structured negative prompt with Cosmos3-Nano and the model card's own
+# i2v example passes it. This project sent none for the whole project. In a 48-clip A/B it
+# was the only arm-vs-control difference with any support: asset degradation ran 2/12 with
+# no negative prompt and 0/36 across every arm that had one (Fisher p=0.06). The yield
+# difference (+25 points) did NOT reach significance (p=0.37) and the combined arm fell
+# back to baseline, so this is adopted as a cheap, vendor-recommended default rather than a
+# demonstrated win.
+COSMOS_NEGATIVE_JSON = (
+    Path(__file__).resolve().parents[2] / "assets" / "cosmos" / "negative_prompt.json")
+
+
+def cosmos_negative_prompt():
+    try:
+        return json.dumps(json.load(open(COSMOS_NEGATIVE_JSON)))
+    except Exception:
+        return None
+
 
 NEGATIVE_PROMPT = (
     "camera motion, zoom, pan, dolly, shaky footage, scene cut, fade, morphing objects, "
@@ -128,12 +149,28 @@ class CosmosI2V:
         self.fps = 24
 
     def generate(self, image, prompt, num_frames=49, seed=0, height=448, width=544,
-                 steps=None, guidance=None):
-        scene = prompt + STATIC_CAMERA_SUFFIX
+                 steps=None, guidance=None, negative_prompt="default", raw_json=False):
+        """raw_json: pass `prompt` through untouched, for the JSON structure the model
+        card asks for. Otherwise it is wrapped in the one-key {"scene": ...} stub, which
+        is what this project used before and is NOT the documented form."""
+        if raw_json:
+            payload = prompt
+        else:
+            scene = prompt + STATIC_CAMERA_SUFFIX
+            payload = '{"scene":"%s"}' % scene.replace('"', "'")
+        if negative_prompt == "default":
+            negative_prompt = cosmos_negative_prompt()
+        kw = {}
+        if negative_prompt is not None:
+            kw["negative_prompt"] = negative_prompt
+        if steps is not None:
+            kw["num_inference_steps"] = steps
+        if guidance is not None:
+            kw["guidance_scale"] = guidance
         out = self.pipe(
-            prompt='{"scene":"%s"}' % scene.replace('"', "'"),
+            prompt=payload,
             image=image, num_frames=num_frames, height=height, width=width, fps=float(self.fps),
-            generator=self.torch.Generator(device="cuda").manual_seed(seed),
+            generator=self.torch.Generator(device="cuda").manual_seed(seed), **kw,
         )
         vid = out.video if hasattr(out, "video") else out.frames[0]
         if hasattr(vid, "ndim") and getattr(vid, "ndim", 0) == 5:

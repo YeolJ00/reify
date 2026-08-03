@@ -2180,3 +2180,50 @@ So the pipeline can produce a complete physically-generated video of its own:
 That is the project's stated goal rather than a side effect: recover theta, then the
 simulator produces editable, physically-valid animation. The video model is a source of
 motion to measure, not the thing that makes the final motion.
+
+---
+
+## M52 — prompting A/B: adopt the vendor negative prompt, on weak evidence, and say so
+
+The Cosmos3-Nano card states that "text prompts should be upsampled into a specific JSON
+structure" and ships `assets/example_i2v_prompt.json` (18 keys, ~8k chars) plus
+`assets/negative_prompt.json`. This project had been sending a one-key `{"scene": "..."}`
+stub and **no negative prompt at all**, while the Hunyuan backend got one. Four arms, two
+objects, six seeds each, 48 clips; the staged frame is byte-identical across arms.
+
+    arm                          brass pot          ceramic vase      yield    degraded
+    stub (shipped)          0/6, 2 degraded                  2/6    2/12 17%      17%
+    stub + negative         3/6, 0 degraded                  2/6    5/12 42%       0%
+    JSON structure          2/6, 0 degraded                  2/6    4/12 33%       0%
+    JSON + negative         2/6, 0 degraded                  0/6    2/12 17%       0%
+
+**Nothing reaches significance on yield.** Fisher exact vs control: neg p=0.37,
+json p=0.64, json_neg p=1.00. The +25 points for the negative prompt is three clips out of
+twelve, and the pattern is NON-MONOTONIC -- combining two supposedly helpful interventions
+lands exactly on baseline, which is the signature of noise.
+
+**The test was underpowered and I should have checked before spending the clips:** at 12
+per arm the power to detect 17% vs 42% is **26%**. Sixty per arm would give 88%.
+
+The one result with any support is degradation: **2/12 with no negative prompt, 0/36 across
+every arm that had one, Fisher p=0.06.** It also has a mechanism -- the shipped negative
+prompt explicitly names "floating or improperly grounded" and "distorted features", which
+is close to a description of the brass pot turning into a bowl. Both degraded clips are
+still brass pot, the object that degrades anyway, so this is suggestive rather than shown.
+
+**Adopted:** the vendor negative prompt is now the default for CosmosI2V (vendored to
+`assets/cosmos/negative_prompt.json` so it does not depend on a cache path). It is one
+line, it is what NVIDIA ships and their own i2v example passes, no arm was worse with it,
+and the degradation signal points the right way. That is the argument -- a cheap
+vendor-recommended default, not a demonstrated win.
+
+**Not adopted:** the JSON structure. 3000 chars of prompt for no measurable gain and ~30%
+slower generation (117s vs 90s per clip).
+
+**A figure-selection bug worth recording.** The first comparison picked the highest-NCC
+clip per arm, which selects for STATIC clips -- a motionless object matches its own
+template perfectly. It made the negative-prompt arm look like a pot frozen in mid-air.
+Re-selecting on "passed the usability test" shows the real behaviour: control degrades into
+a white bowl by frame 24, while the other three arms keep a lidded copper pot that falls and
+settles. Any figure that picks exemplars by a quality metric has to use a metric that a
+failure cannot maximise.
