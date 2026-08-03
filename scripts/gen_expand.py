@@ -20,7 +20,11 @@ sys.path.insert(0, str(REPO))
 
 from src.video.i2v import CosmosI2V  # noqa: E402
 
-OUT = REPO / "outputs" / "scene" / "expand"
+# LAB lets this write to a parallel lab dir. Regenerating with the vendor negative prompt
+# into expand_neg/ rather than overwriting expand/ keeps the old 168 clips, which turns the
+# regeneration into the properly-powered version of the 48-clip A/B (168 vs 168 instead of
+# 12 per arm, where the power to see 17% vs 42% was only 26%).
+OUT = Path(os.environ.get("LAB") or (REPO / "outputs" / "scene" / "expand"))
 SEEDS = [int(x) for x in os.environ.get("SEEDS", "0,1,2,3,4,5").split(",")]
 
 NOUN = {"apple": "red apple", "baseball": "white baseball", "brass_pot": "copper pot",

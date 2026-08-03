@@ -1,0 +1,10 @@
+{
+  "clip_prompt_ab": {
+    "kb": 249.5,
+    "caption": "Brass pot, dropped. Identical staged frame; the only difference is the negative prompt."
+  },
+  "clip_outcomes": {
+    "kb": 303.1,
+    "caption": "The three things a generated clip can do. Only the first is a measurement."
+  }
+}

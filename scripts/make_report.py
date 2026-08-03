@@ -8,6 +8,7 @@ Run: python scripts/make_report.py            (warp env, no GPU)
 import base64
 import io
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -193,6 +194,7 @@ def main():
     cfg = json.loads((EXP / "lab.json").read_text())
     fit = json.loads((EXP / "expand_fit.json").read_text())
     cmps = json.loads((DOCS / "comparisons.json").read_text())
+    clips = json.loads((DOCS / "clips.json").read_text()) if (DOCS / "clips.json").exists() else {}
 
     cc = a["counts"]; total = sum(cc.values())
     moves, static, degraded = cc["MOVES"], cc["STATIC"], cc["DEGRADED"]
@@ -238,6 +240,16 @@ def main():
         vids += (f'<figure><img src="{uri}" alt="{k} generated versus simulated">'
                  f'<figcaption><b>{PRETTY_CMP.get(k, k)}</b> — {m["note"]}'
                  f'</figcaption></figure>')
+
+    clipfigs = ""
+    for name in ("clip_outcomes", "clip_prompt_ab"):
+        m = clips.get(name)
+        if not m:
+            continue
+        uri = embed_path(DOCS / f"{name}.webp", "image/webp")
+        if uri:
+            clipfigs += (f'<figure><img src="{uri}" alt="{name}">'
+                         f'<figcaption>{m["caption"]}</figcaption></figure>')
 
     wins = "".join(f'<div class="win"><span>{nm}</span><b>{v:.3f} ± {e:.3f}'
                    f'&nbsp;&nbsp;({100*e/v:.0f}%)</b></div>' for nm, v, e in tight)
@@ -341,7 +353,19 @@ handbook comparison is drawn: a downloaded mesh has no true density, and the goa
 parameter that <em>explains the clip</em>, not one that matches a reference book.
 </figcaption></figure>
 
-<h2><span class="num">02</span>Generated video against our simulation of it</h2>
+<h2><span class="num">02</span>What the generated video actually does</h2>
+<p>Everything else here measures these clips or simulates them; this is the clips
+themselves. A generated take does one of three things, and only the first is a
+measurement.</p>
+{clipfigs}
+<p>The second animation is a controlled before/after: identical staged frame, identical
+model, the only difference being whether NVIDIA's shipped negative prompt was passed. It
+is now the default. On a 48-clip A/B the yield difference did <em>not</em> reach
+significance (p&nbsp;=&nbsp;0.37); asset degradation was 2/12 without it and 0/36 with it
+(p&nbsp;=&nbsp;0.06), which is suggestive rather than shown. It is adopted because it is
+free and vendor-recommended, not because it was proven.</p>
+
+<h2><span class="num">03</span>Generated video against our simulation of it</h2>
 <p>Left pane: the clip Cosmos produced. Right pane: the simulated rollout at the parameter
 recovered from that same clip, rendered by <b>Blender/Cycles in the staged scene</b> — same
 table, same HDRI, same camera, same materials, so the only difference between the panes is
@@ -402,7 +426,7 @@ resting heights and all contact geometry were built from the wrong pose, so ever
 simulation-side result predating this fix is void. The measurements are not affected —
 restitution and friction are read from tracked pixel motion and never touch the mesh.</p>
 
-<h2><span class="num">04</span>All seven objects</h2>
+<h2><span class="num">05</span>All seven objects</h2>
 <p>Three drop heights turn restitution from one number into a relationship:
 <code>e</code> at the centre of the measured speed range, and <code>de/dv</code>, its
 change per m/s of impact speed. Impact speed is measured from the track, never assumed
@@ -420,7 +444,7 @@ reads as a rebound larger than the fall.</p>
 further from its rendered context makes the model likelier to re-render it than to move
 it. 0.18 m is the sweet spot.</figcaption></figure>
 
-<h2><span class="num">05</span>The estimator was manufacturing numbers</h2>
+<h2><span class="num">06</span>The estimator was manufacturing numbers</h2>
 <p>The retired fitter searched a parameter grid for the value whose hand-weighted motion
 signature best matched the track. A grid always returns a best match; it never asks
 whether the observation constrains anything. This comparison runs both estimators over
@@ -431,7 +455,7 @@ whether the observation constrains anything. This comparison runs both estimator
 The apple's 1.100 was the grid maximum, a railed bound reported as a measurement.
 </figcaption></figure>
 
-<h2><span class="num">06</span>The tracker was aimed by the wrong pipeline</h2>
+<h2><span class="num">07</span>The tracker was aimed by the wrong pipeline</h2>
 <p>Seeds were produced by projecting a body centre computed as <code>pos + vmean</code>,
 the mesh's vertex mean added to its placed position, with the object's <code>rot_z</code>
 never applied. Blender places the origin at <code>pos</code> and rotates it. The two
@@ -453,7 +477,7 @@ frames isolates it exactly, <em>in the image we are about to track</em>. Geometr
 conventions cannot disagree with the renderer if the renderer is the source. 18 of 28
 seeds moved by more than 20&nbsp;px.</p>
 
-<h2><span class="num">07</span>A withdrawn claim about gravity, and what a control showed</h2>
+<h2><span class="num">08</span>A withdrawn claim about gravity, and what a control showed</h2>
 <p>An earlier version of this page stated that <del>the generated video runs about 5× too
 slow, an effective gravity near 0.3&nbsp;m/s²</del>. That is withdrawn. It came from a
 measurement that fails on a control where the answer is known.</p>
@@ -476,7 +500,7 @@ contact inverts the answer. Until that selection is robust, <b>the generated vid
 gravity is unmeasured</b> — not wrong. Every per-clip figure produced by the old method is
 void.</p></div>
 
-<h2><span class="num">08</span>The audit that corrected itself</h2>
+<h2><span class="num">09</span>The audit that corrected itself</h2>
 <p>An earlier version of this report stated that <del>68 of 93 takes contained no
 measurable motion</del>. That came from tracked centroids, and the tracker fails on these
 clips in a way its own diagnostics cannot see: points stay &ldquo;visible&rdquo; while
@@ -492,7 +516,7 @@ lidded pot into a wide shallow bowl. No density, friction or restitution turns a
 a bowl, so this fails even a plausibility bar. It is asset integrity, not
 identifiability.</p></div>
 
-<h2><span class="num">09</span>Corrections</h2>
+<h2><span class="num">10</span>Corrections</h2>
 <ul>
 <li><b>The simulator held meshes on their sides</b> for the whole project (glTF Y-up
 never converted to Z-up), so every simulation-side result predating the fix is void.</li>
@@ -519,7 +543,7 @@ the same pipeline reads 9.44.</li>
 &ldquo;true&rdquo; densities from a hardcoded table of textbook guesses.</li>
 </ul>
 
-<h2><span class="num">10</span>Known limits</h2>
+<h2><span class="num">11</span>Known limits</h2>
 <ul>
 <li>The rubber duck's values come from clips in which it re-forms rather than
 translating; appearance matching cannot fully separate &ldquo;translated&rdquo; from
@@ -540,6 +564,14 @@ measured here at all.</li>
 <code>docs/PROJECT_LOG.md</code>.</footer>
 </div>
 """
+    # Renumber section headings in document order. Hand-maintained numbers drifted every
+    # time a section was inserted -- the last edit produced 03 twice and no 04.
+    n = [0]
+    def _bump(m):
+        n[0] += 1
+        return f'<h2><span class="num">{n[0]:02d}</span>'
+    html = re.sub(r'<h2><span class="num">\d+</span>', _bump, html)
+
     OUT.write_text(html)
     print(f"wrote {OUT}  ({len(html)/1024:.0f} KB)")
     print(f"  {len(tight)} parameters within ±25%; {len(cmps)} comparisons embedded; "
