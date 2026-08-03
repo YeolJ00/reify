@@ -32,7 +32,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from scripts.simple_fit import pixel_scale  # noqa: E402
+from scripts.simple_fit import pixel_scale, vertical_pixel_scale  # noqa: E402
 from src.motion import observables as OB  # noqa: E402
 from src.motion.observables import (admissible, combine, drop_observables,  # noqa: E402
                                     polyfit_se, slide_observables)
@@ -81,10 +81,11 @@ def main():
     seeds = json.loads((si if si.exists() else LAB / "seeds.json").read_text())
     tag = "_img" if si.exists() else ""
     print(f"seeds: {'image-derived' if si.exists() else 'projected geometry'}\n")
-    px_per_m, _ = pixel_scale(cfg["camera"], cfg["ground_z"])
+    px_per_m, _ = pixel_scale(cfg["camera"], cfg["ground_z"])      # horizontal: slides
+    px_per_m_v = vertical_pixel_scale(cfg["camera"], cfg["ground_z"])  # vertical: drops
 
     per = {}          # subj -> {"drop": [(v_impact, e, se)], "slide": ([v],[se])}
-    noise, nclip, ndeg, nskip = [], 0, 0, 0
+    noise, nclip, ndeg, nskip, n_fast = [], 0, 0, 0, 0
     for key, e in sorted(cfg["experiments"].items()):
         s = seeds.get(key, {}).get("subject")
         if not s:
@@ -106,8 +107,16 @@ def main():
                 o = drop_observables(cen)
                 if not o.get("ok") or not admissible("restitution", o["value"]):
                     continue
-                # measured impact speed in m/s, not the staged height
-                v_imp = abs(o["v_pre"]) * FPS / px_per_m
+                # measured impact speed in m/s, through the VERTICAL scale
+                v_imp = abs(o["v_pre"]) * FPS / px_per_m_v
+                # An object released from rest cannot arrive faster than free fall from
+                # its staged height. A take reporting more than that is not a fast clip,
+                # it is a tracker jump feeding the peak-picking -- the same class of
+                # artefact as e > 1, and rejected the same way rather than smoothed away.
+                v_max = 1.3 * np.sqrt(2 * 9.81 * max(e["height_m"], 1e-3))
+                if v_imp > v_max:
+                    n_fast += 1
+                    continue
                 b["drop"].append((v_imp, o["value"], o["se"], e["height_name"]))
             else:
                 o = slide_observables(cen, px_per_m, FPS)
@@ -117,7 +126,7 @@ def main():
                 if o["value"] < 1e-3:
                     noise.append(o["se"])
 
-    print(f"{nclip} clips read, {ndeg} dropped as degraded"
+    print(f"{nclip} clips read, {ndeg} degraded, {n_fast} impossibly fast"
           + (f", {nskip} still being written" if nskip else "") + "\n")
     print(f"{'object':14s} {'n':>3s} {'e at mid speed':>18s} {'de/dv':>18s} "
           f"{'friction mu':>18s}    v_mid")
@@ -138,6 +147,20 @@ def main():
             try:
                 cov = np.linalg.inv(A)
                 beta = cov @ (V.T @ (w * ee))
+                # SCALE BY REDUCED CHI-SQUARE. The covariance above is built from the
+                # per-take error bars alone, so it describes how well the LINE is pinned
+                # given that each point is as good as it claims. It says nothing about the
+                # points disagreeing with each other. The apple's twelve takes span
+                # e = 0.000 to 0.998 (std 0.371) while their individual bars are ~0.05, so
+                # the unscaled fit reported +-0.009 for a quantity the data does not
+                # constrain at all. Inflating by chi2/dof when residuals exceed the bars is
+                # the standard treatment, and it is what `combine()` already does for
+                # friction via its between-take term -- which is why friction read an
+                # honest +-22% while every restitution read +-1-7%.
+                resid = ee - V @ beta
+                dof = max(len(ee) - 2, 1)
+                chi2_red = float((w * resid ** 2).sum() / dof)
+                cov = cov * max(chi2_red, 1.0)
                 e_mid, slope = float(beta[0]), float(beta[1])
                 se0, sslope = float(np.sqrt(cov[0, 0])), float(np.sqrt(cov[1, 1]))
                 row.update(e_mid=e_mid, e_mid_se=se0, v_mid=vbar,

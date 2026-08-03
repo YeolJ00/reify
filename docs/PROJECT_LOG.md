@@ -2315,3 +2315,52 @@ and no amount of code fixes it.
 
 Expect the recovered restitutions to move up substantially from 0.033 -- that value came
 from an objective that could not measure restitution.
+
+---
+
+## M55 — the speed axis, and a false breakthrough caught before publication
+
+The re-fit first reported **7-8 parameters at +-1-7%**, up from 2. That was an artefact and
+is the closest this project came to publishing a fabricated result.
+
+**Bug 1: the covariance ignored between-take disagreement.** `fit_expand`'s weighted line
+fit built its covariance from the per-take error bars alone. The apple's twelve takes span
+e = 0.000 to 0.998 (std 0.371) while their individual bars are ~0.05 -- a 40x mismatch --
+and the fit reported +-0.009. Friction escaped it only because `combine()` carries a
+between-take term, which is why friction read an honest +-22% while every restitution read
++-1-7%. All seven "new" parameters came from the broken path. Fixed by scaling the
+covariance by reduced chi-square, the standard treatment when residuals exceed the bars.
+
+**Bug 2: a horizontal pixel scale used for vertical motion.** Drops are measured along
+image y, but the fit converted to m/s with the scale computed for horizontal motion along
+the lane: 345 px/m where the vertical scale at the drop point is 490, a factor of 1.42.
+Validated on the control -- with the vertical scale, measured impact speed matches world-z
+truth to within 0.07 m/s at all three heights.
+
+**Bug 3: peak-picking latched onto tracker jumps.** Even after the scale fix the reported
+impact speeds were ~2x the physical ceiling. An object released from rest cannot arrive
+faster than free fall from its staged height, so exceeding sqrt(2gh) is a tracker artefact,
+not a fast clip -- the same class as e > 1 and rejected the same way. **40 of 168 takes in
+the old lab and 34 of 168 in the new one are impossibly fast.**
+
+**Results after all three fixes, both labs, same estimator:**
+
+    lab                        parameters within +-25%
+    expand      (no negative)   1   ceramic_vase friction 0.026 +- 0.006
+    expand_neg  (negative)      5   apple e 0.527+-0.092, brass_pot e 0.364+-0.066,
+                                    ceramic_vase e 0.266+-0.048, rubber_duck e 0.244+-0.054,
+                                    rubber_duck friction 0.039+-0.009
+
+**1 vs 5 at n=168 each is the properly-powered answer** the 12-per-arm A/B could not give
+(26% power). The negative prompt earns its place on this evidence, not on the earlier
+p=0.37.
+
+**Two caveats kept in view.** The de/dv slopes are mostly the WRONG SIGN (apple +0.400,
+pot +0.249, vase +0.151 -- restitution rising with impact speed, which real materials do
+not do), so speed dependence is still not credible and should not be reported. And the
+count depends on the interval convention: `e_mid` is exactly the plain weighted mean, but
+`combine()`'s more conservative between-take interval is wider (apple +-0.131 vs +-0.092),
+under which about 3 of the 5 clear +-25% rather than 5.
+
+The restitutions are now physically plausible for the first time -- apple 0.53, ceramic
+0.27, duck 0.24 -- where the broken objective had given 0.03 for everything.

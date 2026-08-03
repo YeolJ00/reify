@@ -55,6 +55,21 @@ def pixel_scale(cam_cfg, ground_z):
     return float(np.mean(scales)), float((max(scales) - min(scales)) / np.mean(scales))
 
 
+def vertical_pixel_scale(cam_cfg, ground_z, x=-0.30, y=-0.02, z0=0.10, dz=0.10):
+    """Pixels per metre for VERTICAL motion at the drop location.
+
+    A drop is measured along image y, so it needs the vertical scale, not the horizontal
+    one used for slides. They differ by 1.42x here (490 vs 345 px/m), and using the
+    horizontal scale made every reported impact speed 42% too high -- part of why the fit
+    claimed 4.8-7.8 m/s for drops that cannot exceed 2.43 m/s.
+    """
+    from src.render.camera import Camera
+    cam = Camera(cam_cfg)
+    P = np.array([[x, y, ground_z + z0], [x, y, ground_z + z0 + dz]])
+    uv, _ = cam.project(P)
+    return float(np.hypot(*(uv[1] - uv[0]))) / dz
+
+
 def main():
     cfg = json.loads((LAB / "lab.json").read_text())
     px_per_m, scale_var = pixel_scale(cfg["camera"], cfg["ground_z"])
