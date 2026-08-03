@@ -2227,3 +2227,46 @@ Re-selecting on "passed the usability test" shows the real behaviour: control de
 a white bowl by frame 24, while the other three arms keep a lidded copper pot that falls and
 settles. Any figure that picks exemplars by a quality metric has to use a metric that a
 failure cannot maximise.
+
+---
+
+## M53 — the contact model was creating energy; "everything is a bit bouncy" was right
+
+The user observed that the simulated objects look too bouncy. That conflicts with our own
+numbers -- we measure the vase at e=0.033, nearly dead -- so it was worth testing rather
+than tuning. Dropping a single sphere (no mesh, no toppling, no camera, world z only) and
+sweeping the contact damping:
+
+    cd      rebound/drop    e
+     0.5       0.90        0.949
+     5.0       0.42        0.649
+    20.0       0.04        0.200
+    60.0       0.00        0.000
+   200.0       0.00        0.000
+   600.0      26.80        5.18     <- ENERGY CREATED
+  2000.0      98.39        9.92     <- ENERGY CREATED
+
+**Beyond cd~200 the explicit penalty contact pumps energy**: the ball leaves the ground 98x
+higher than it was dropped from, which no passive contact can do. The bound is closed-form
+-- the damping impulse must not reverse the velocity within one step:
+
+    cd < 2m/dt = 2(0.127)/0.000694 = 367     observed stable at 200, exploding by 600
+
+**And the bounciness has a number.** Critical damping here is 2*sqrt(km) = 35.7, so the
+cd=5 our fit chose is **0.14x critical** -- barely damped, hence visibly bouncy. The fit
+chose it because `tune_cd` matches the PROJECTED rebound of a toppling vase, which is not
+the physical restitution; the objective was matching the wrong quantity.
+
+**Fixes:**
+  * `ProbeScene` now computes `2m/dt` from the actual masses and clamps cd to half of it,
+    with a RuntimeWarning. Half, not 0.9x: at 0.9x (cd=330) the model still gave e=0.64
+    where cd=200 gives e=0.00. Restitution is monotonic in cd only well below the bound.
+  * the cd search in `export_sim_poses.py` is bounded to [0.5, 200], the stable monotonic
+    region. It had been [0.5, 2000], i.e. half the search space was an artefact -- so any
+    cd it returned above ~200 was meaningless, including in the duck's "floor at 0.194".
+  * verified after the fix: e is monotonic non-increasing over cd in [0.5, 160], spanning
+    0.949 down to 0.000, and cd=600/2000 now clamp to a physical answer.
+
+This is the third time a control with a known answer has falsified something (after the
+sideways meshes and the gravity claim). A single sphere has an analytic rebound; nothing
+about this needed video, tracking, or a mesh.

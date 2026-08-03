@@ -109,7 +109,9 @@ def main():
 
             cd = 20.0
             if what == "restitution" and r.get("e_mid") is not None:
-                lo, hi, best = 0.5, 2000.0, None
+                # bounded to the stable, monotonic region of the contact model: past
+                # ~2m/dt the explicit penalty contact creates energy (measured e up to 9.9)
+                lo, hi, best = 0.5, 200.0, None
                 for _ in range(12):
                     t = float(np.sqrt(lo * hi))
                     P, Q = run(t)

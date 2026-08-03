@@ -97,6 +97,15 @@ class ProbeScene:
         # ball_radius: model each body as a single solid sphere instead of a scanned mesh
         # (used for the generated-video probes, where the objects really are balls)
         self.N = len(names); self.dt, self.n_steps = dt, n_steps
+        # CONTACT STABILITY. The contact is an explicit penalty spring-damper, so the
+        # damping impulse must not be able to reverse a body's velocity within one step:
+        #   cd < 2m/dt
+        # Beyond that the integrator pumps energy instead of removing it. Measured on a
+        # 3.7 cm sphere (m=0.127 kg, dt=0.69 ms, bound 367): cd=200 gives e=0.00, cd=600
+        # gives e=5.2 and cd=2000 gives e=9.9 -- a ball leaving the ground 98x higher than
+        # it was dropped from, which no passive contact can do. A parameter search that
+        # ranges past this bound is searching a region where the answer is an artefact.
+        self._cd_limit = None
         self.k, self.ground_z = float(k), float(ground_z)
         self.gravity = wp.vec3(*gravity)
 
@@ -145,6 +154,20 @@ class ProbeScene:
         self.vlin0 = np.asarray(vel0, np.float32)
         self.vang0 = np.asarray(ang0 if ang0 is not None else np.zeros((self.N, 3)), np.float32)
         mk = lambda d: [wp.zeros(self.N, dtype=d) for _ in range(n_steps + 1)]
+        m_min = float(np.min(self.mass.numpy())) if hasattr(self, "mass") else None
+        if m_min:
+            # half the hard bound: at 0.9x (cd=330 here) the model was still misbehaving,
+            # giving e=0.64 where cd=200 gives e=0.00. Restitution is monotonic in cd only
+            # well below the limit, which is the region a parameter search can use.
+            self._cd_limit = 0.5 * (2.0 * m_min / self.dt)
+            if cd > self._cd_limit:
+                import warnings
+                warnings.warn(
+                    f"cd={cd:.1f} exceeds the explicit-integration stability bound "
+                    f"2m/dt={self._cd_limit:.0f}; contact will create energy. Clamping.",
+                    RuntimeWarning)
+                cd = self._cd_limit * 0.9
+                self.cd = wp.array([float(cd)], dtype=float)   # stays a warp array
         self.pos, self.rot = mk(wp.vec3), mk(wp.quat)
         self.vlin, self.vang = mk(wp.vec3), mk(wp.vec3)
         self.force, self.torque = wp.zeros(self.N, dtype=wp.vec3), wp.zeros(self.N, dtype=wp.vec3)
