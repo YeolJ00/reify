@@ -18,7 +18,8 @@ import mathutils
 
 REPO = Path("/home/nas5/jooyeolyun/repos/simulation-assestization")
 SCENE = REPO / "outputs" / "scene"
-LAB = SCENE / "expand"
+import os
+LAB = Path(os.environ.get("LAB") or (SCENE / "expand"))
 CITY = REPO / "assets" / "scenes" / "city"
 CAM = {"eye": [0.72, -0.80, 1.12], "target": [-0.02, 0.02, 0.80], "fov_deg": 46,
        "width": 544, "height": 448}

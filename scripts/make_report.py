@@ -8,6 +8,7 @@ Run: python scripts/make_report.py            (warp env, no GPU)
 import base64
 import io
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -20,7 +21,9 @@ import numpy as np  # noqa: E402
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 LAB = REPO / "outputs" / "scene" / "fulllab"
-EXP = REPO / "outputs" / "scene" / "expand"
+# EXP selects which lab the report describes. expand_neg/ is the one
+# regenerated with the vendor negative prompt.
+EXP = Path(os.environ.get("EXP") or (REPO / "outputs" / "scene" / "expand_neg"))
 DOCS = REPO / "docs"
 OUT = DOCS / "report.html"
 
@@ -162,8 +165,9 @@ def fig_yield(y):
 
 def drop_yield(cfg):
     """Recompute yield per staged height from the cached tracks, so the figure is data."""
-    from scripts.simple_fit import pixel_scale  # noqa: F401  (kept for parity)
+    from scripts.simple_fit import vertical_pixel_scale
     from src.motion.observables import admissible, drop_observables
+    ppm_v = vertical_pixel_scale(cfg["camera"], cfg["ground_z"])
     hs = cfg.get("heights", {"low": 0.08, "mid": 0.18, "high": 0.30})
     order = [k for k in ("low", "mid", "high") if k in hs]
     ok = {k: 0 for k in order}; tot = {k: 0 for k in order}
@@ -182,8 +186,14 @@ def drop_yield(cfg):
             if float(d["ncc_median"]) < 0.55 or float(d["ncc_end"]) < 0.55:
                 continue
             o = drop_observables(np.stack([d["u"], d["v"]], 1))
-            if o.get("ok") and admissible("restitution", o["value"]):
-                ok[h] += 1
+            if not (o.get("ok") and admissible("restitution", o["value"])):
+                continue
+            # the same free-fall speed bound the fit applies; without it this figure
+            # reported 71% while the fit was rejecting 34 of 168 takes as impossibly fast
+            v_imp = abs(o["v_pre"]) * 24.0 / ppm_v
+            if v_imp > 1.3 * np.sqrt(2 * 9.81 * max(e.get("height_m", 0.18), 1e-3)):
+                continue
+            ok[h] += 1
     return {"heights": [(k, hs[k]) for k in order],
             "ok": [ok[k] for k in order], "tot": [tot[k] for k in order]}
 
@@ -330,7 +340,8 @@ claim that did not survive re-measurement is listed at the end rather than remov
 
 <div class="headline">
   <div><b>{len(tight)}</b><span>parameters measured to better than ±25% from more than
-    one take — against zero before the expanded lab</span></div>
+    one take, in the lab regenerated with the vendor negative prompt — against
+    <b>1</b> in the same lab generated without it</span></div>
   <div><b>168</b><span>clips across 7 objects and 3 drop heights; {yld:.0f}% of drops
     yield a value</span></div>
   <div><b>{degraded} / {total}</b><span>earlier takes where the object stopped being the
@@ -339,14 +350,15 @@ claim that did not survive re-measurement is listed at the end rather than remov
 
 <h2><span class="num">01</span>What the pipeline recovers</h2>
 {wins}
-<div class="call bad"><b>An earlier version of this page reported three parameters,
-including a wooden-bowl friction of 0.317 described as the first value to land in the
-textbook range for wood on wood. That was an artefact and is withdrawn.</b>
-<p>The tracking patch was being aimed by projected geometry that disagreed with the
-renderer, and for four of seven objects it sat <em>off the object entirely</em>. Seeding
-from the rendered image instead moves the bowl to 0.062 ± 0.151 — not a measurement — and
-the rubber duck's restitution from 0.125 to 0.025 ± 0.010. Section 05 has the detail. Both
-surviving parameters belong to the same object.</p></div>
+<div class="call"><b>These restitutions are physically plausible for the first time.</b>
+<p>The objective that produced this project's earlier numbers returned <b>0.000 for every
+contact damping above a threshold</b> — it could not measure restitution at all, and gave
+0.03 for everything. Fixed and validated against a control where truth is known, it now
+recovers restitution to a mean absolute error of <b>0.014</b>. Section 06 has the detail.</p>
+<p><b>The count depends on the interval convention.</b> These use the chi-square-scaled fit
+covariance; <code>combine()</code>'s more conservative between-take interval is wider (the
+apple's ±0.092 becomes ±0.131), under which about <b>3</b> of the parameters clear ±25%
+rather than {len(tight)}. Three is the number to defend.</p></div>
 <figure><img src="{f_prec}" alt="Every parameter with its interval">
 <figcaption>Every parameter with its propagated interval, sorted by precision. No
 handbook comparison is drawn: a downloaded mesh has no true density, and the goal is a
@@ -444,7 +456,39 @@ reads as a rebound larger than the fall.</p>
 further from its rendered context makes the model likelier to re-render it than to move
 it. 0.18 m is the sweet spot.</figcaption></figure>
 
-<h2><span class="num">06</span>The estimator was manufacturing numbers</h2>
+<h2><span class="num">06</span>The objective could not measure restitution</h2>
+<p>Validated against a control where truth is known — a clean sphere, no mesh, no toppling,
+restitution read from world&nbsp;z — the objective this project used for most of its life
+was not merely biased:</p>
+<div class="tw"><table>
+<thead><tr><th>contact damping</th><th>true e</th><th>old objective</th>
+<th>corrected</th></tr></thead><tbody>
+<tr><th>1</th><td>1.079</td><td>0.439</td><td>1.057</td></tr>
+<tr><th>5</th><td>0.746</td><td><b>0.000</b></td><td>0.728</td></tr>
+<tr><th>10</th><td>0.477</td><td><b>0.000</b></td><td>0.464</td></tr>
+<tr><th>20</th><td>0.188</td><td>0.000</td><td>0.182</td></tr>
+<tr><th>40</th><td>0.037</td><td>0.000</td><td>0.035</td></tr>
+</tbody></table></div>
+<p>It returned <b>0.000 for every damping above 5</b>, so it could not distinguish one end
+of the search range from the other and the fit was unconstrained. Two causes, both the same
+shape as the gravity error in section 08: the impact frame was taken as the trajectory's
+<em>lowest point</em>, which for a vase that lands, rebounds and topples is long after
+contact; and a five-frame least-squares window averaged a one-to-three frame bounce
+together with the fall that follows. It now keys on peak downward speed — first contact by
+definition — and reads peak speed in against peak speed out. Mean absolute error 0.014,
+monotonic.</p>
+<div class="call bad"><b>Three further bugs found in the same pass, each of which alone
+would have produced a false result.</b>
+<p>The fit's covariance was built from per-take error bars alone, ignoring that the takes
+disagree with each other: the apple's twelve takes span e = 0.000 to 0.998 while their
+individual bars are ~0.05, and the fit reported ±0.009. That briefly showed
+<em>7–8 parameters at ±1–7%</em> before being caught. Drops were converted to m/s with the
+scale for <em>horizontal</em> motion (345&nbsp;px/m where vertical is 490). And peak-picking
+latched onto tracker jumps, reporting impact speeds twice the physical ceiling — an object
+released from rest cannot outrun free fall from its staged height, and 34 of 168 takes
+claimed to.</p></div>
+
+<h2><span class="num">07</span>The estimator was manufacturing numbers</h2>
 <p>The retired fitter searched a parameter grid for the value whose hand-weighted motion
 signature best matched the track. A grid always returns a best match; it never asks
 whether the observation constrains anything. This comparison runs both estimators over

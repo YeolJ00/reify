@@ -13,6 +13,7 @@ it a solver-debugging view rather than something comparable to a photograph.
 Run: python scripts/make_comparison_figs.py         (warp env, no GPU)
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-LAB = REPO / "outputs" / "scene" / "expand"
+LAB = Path(os.environ.get("LAB") or (REPO / "outputs" / "scene" / "expand"))
 DOCS = REPO / "docs"
 STEP = 2
 SCALE = 0.86

@@ -18,6 +18,7 @@ contact geometry matches the shape actually being rendered.
 Run: CUDA_VISIBLE_DEVICES=<g> python scripts/export_sim_poses.py     (warp env)
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ import numpy as np
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-LAB = REPO / "outputs" / "scene" / "expand"
+LAB = Path(os.environ.get("LAB") or (REPO / "outputs" / "scene" / "expand"))
 SUBSTEPS, K_CONTACT, PITCH = 60, 2500.0, 0.020
 NF, FPS = 49, 24.0
 PICKS = [("ceramic_vase", "drop_mid", "restitution"),

@@ -2364,3 +2364,26 @@ under which about 3 of the 5 clear +-25% rather than 5.
 
 The restitutions are now physically plausible for the first time -- apple 0.53, ceramic
 0.27, duck 0.24 -- where the broken objective had given 0.03 for everything.
+
+---
+
+## M56 — report regenerated against the negative-prompt lab
+
+`make_report.py` now defaults to `expand_neg/`, and every downstream stage
+(`export_sim_poses`, `blender_render_sim`, `make_comparison_figs`) takes a LAB override, so
+a lab can be carried end to end without editing paths.
+
+Both drop comparisons now match exactly: ceramic vase e measured 0.266 / simulated 0.266,
+rubber duck 0.244 / 0.244. With the objective corrected and the cd search bounded to the
+stable region, the recovered parameter is reachable by a contact that does not create
+energy -- which was not true of any earlier "match".
+
+**The yield figure was contradicting the fit.** It reported 71% while the fit rejected 34
+of 168 takes as impossibly fast, because the figure applied the admissibility check but not
+the free-fall speed bound. Aligned: **44%**, which is the fraction the fit actually uses.
+A figure and a table in the same report disagreeing by 27 points is the kind of thing that
+survives only until someone reads both.
+
+The report now states the conservative parameter count. Five clear +-25% under the
+chi-square-scaled fit covariance; about three clear it under `combine()`'s wider
+between-take interval, and three is the number offered for defence.
