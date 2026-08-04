@@ -2475,3 +2475,71 @@ anywhere in the region the fit can reach -- which was not true two milestones ag
 cd=600 gave e=5.2 and cd=2000 gave e=9.9.
 
 Report regenerated and republished.
+
+---
+
+## J0 / J1 — render harness and judge harness, first session of the judge pivot
+
+The tracker pipeline is retired. First session goal was J0 + J1 end to end on one clip.
+
+**J0 — render harness.** The M0 cloth flag scene runs unchanged (0.4 s rollout, 61 frames x
+425 particles). Rollout -> mp4 via `newton.viewer.ViewerRTX` headless, since the flag IS a
+`newton.Model` and the viewer can consume it directly. Rendered with `environment="default"`
+rather than "studio": measured cloth-vs-background contrast 80/255 against 39/255.
+`log_mesh`'s `color` and `roughness` arguments were measured to have NO effect (identical
+pixels for very different values), so appearance is not carried that way.
+
+**A stability bug that mattered more than the renderer.** The first "stiff" theta blew the
+flag up to a 481 m span and a 15 km tip path -- and still rendered happily, which is exactly
+the kind of silent garbage the judge would have scored. The config warns about TWO
+conditions and I implemented only one:
+
+    dt*sqrt(ke/m) < ~0.3     stretch force
+    kd/m*dt       << 1       damping
+
+Chasing the stretch condition alone did not fix it, because it was the kd=40 DAMPING doing
+it: measured at 36 substeps, kd=10 is stable and kd=20 is not, while stiffness runs to
+ke=4e4 happily once its own condition is met. Substeps now satisfy both, with the config's
+32 as a floor -- dropping below it (to the 22 the stretch condition alone allowed) blew up
+a flag that is stable at 32.
+
+Three clips, visibly different, monotone in the right direction:
+
+    stiff   ke=5e4  149 substeps  tip path 1.10 m   holds a flat panel
+    medium  ke=5e3   38 substeps  tip path 1.86 m   folds into a cone
+    floppy  ke=2e2   32 substeps  tip path 8.45 m   streams and whips
+
+**J1 — judge harness. The judge is Cosmos 3 itself.** Cosmos 3 is omnimodal: the same
+`nvidia/Cosmos3-Nano` weights we generate with are also the reasoner (`Reasoner Input:
+Text+Video, mp4 at 4 fps`, architecture `Cosmos3ReasonerForConditionalGeneration`). Nothing
+extra to download, and the judge shares a physics prior with the generator. Loaded through
+`transformers` as `Cosmos3OmniForConditionalGeneration` rather than the card's vLLM server:
+the vllm here is a CUDA-13 build against cu128 torch and does not import, and a forward pass
+gives the logits we need without a server.
+
+**A silent failure worth recording.** `qwen_vl_utils.process_vision_info` cannot read video
+in this environment -- torchcodec fails to load its CUDA-13 libs, and the torchvision
+fallback calls `read_video`, which no longer exists. Behind a bare `except` that returned no
+video, the judge scored the TEXT ALONE and returned byte-identical numbers for three
+visibly different clips (-0.750 / -0.750 / -0.750). The judge now decodes the mp4 itself at
+4 fps and ASSERTS the video reached the model (672 tokens, 12 frames), so this cannot recur.
+
+**Score matrix (yes-no logprob margin, mean of 3 paraphrases):**
+
+                          stiff     medium     floppy
+    heavy stiff tarp     -1.213     -1.598     -1.647
+    light silk           +1.292     +1.500     +1.583
+
+    tarp: stiff - floppy = +0.435   correct direction
+    silk: floppy - stiff = +0.290   correct direction
+
+**Smoke signal: the ordering is right on both rows.** But two cautions before J2. The
+absolute sign is uninformative -- the judge says "yes" to silk and "no" to tarp for EVERY
+clip, so it is discriminating within a material far more weakly than it is asserting a
+global preference. And the tarp row's prompt spread (2.1 to 3.8) is an order of magnitude
+larger than the between-clip differences (0.435), so a single paraphrase could easily
+reverse the ordering. J2 must treat that spread as the thing to beat.
+
+**Throughput: 1.36 s per (clip, material) with 3 paraphrases -> 44 pairs/min.** Judge loads
+in 14 s and uses 17.5 GB, leaving 33 GB free on a 49 GB card, so render and judge can share
+a GPU. A J2 sweep of 60 clips x 3 materials is ~4 min of judging plus ~5 min of rendering.
