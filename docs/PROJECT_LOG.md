@@ -2387,3 +2387,60 @@ survives only until someone reads both.
 The report now states the conservative parameter count. Five clear +-25% under the
 chi-square-scaled fit covariance; about three clear it under `combine()`'s wider
 between-take interval, and three is the number offered for defence.
+
+---
+
+## M57 — the de/dv slopes are the contact model's fault, not the measurement's
+
+Asked to fix the positive de/dv slopes (restitution rising with impact speed, which real
+materials do not do). The diagnosis inverted twice.
+
+**Not the weighting.** Weighted and unweighted fits agree (+0.400 vs +0.357), and the
+correlation is in the data: Pearson r(v,e) = +0.75 for the apple.
+
+**Not the measurement.** On a control where truth is known, the pipeline recovers the
+simulator's own restitution almost exactly:
+
+    h(m)   v_true   e_true   measured
+    0.10    1.03    0.084     0.083
+    0.18    1.43    0.188     0.182
+    0.30    2.21    0.146     0.144
+    0.45    2.66    0.148     0.143
+
+**It is the contact model.** Our penalty contact has a genuine, spurious velocity
+dependence. Worse than a constant offset, it is ERRATIC -- the sign flips with the damping
+value:
+
+    linear damping     cd=5   de/dv -0.055      cd=20  de/dv +0.058
+                       cd=10  de/dv +0.003      cd=40  de/dv -0.002
+
+A linear spring-damper should have velocity-INDEPENDENT restitution. Ours does not, because
+`fn = max(k*pen - cd*v, 0)` clamps the damping term at separation, and that clamp behaves
+differently depending on how much of the contact is damping-dominated.
+
+**Fix implemented and verified: Hunt-Crossley damping** (`PROBE_HUNT_CROSSLEY=1`), where
+the damping force scales with penetration, `fn = max(k*pen - cd*pen*v, 0)`. It vanishes at
+separation without needing a clamp, and gives the physically correct sign throughout:
+
+    Hunt-Crossley      cd=500   e 0.61..1.04   de/dv -0.201
+                       cd=1500  e 0.32..0.73   de/dv -0.197
+                       cd=4000  e 0.11..0.32   de/dv -0.100
+                       cd=8000  e 0.03..0.10   de/dv -0.008
+
+It spans the useful restitution range with a consistently non-positive slope.
+
+**Two things this needed on the way.** The stability bound had to become Hunt-Crossley
+aware: under HC the damping force is cd*pen*v so the bound applies to the PRODUCT, and the
+linear bound (183) was clamping every HC value to the same number -- four different damping
+values gave byte-identical results and the comparison silently measured nothing. And at
+cd=500 the HC contact still reaches e=1.04, slightly creating energy at the low-damping
+end.
+
+**NOT made the default.** Switching the contact law changes every fitted parameter -- the
+damping values differ by ~100x and the dynamics with them -- so adopting it means
+re-running the whole fit. Left behind the flag, verified, for that to be a deliberate step
+rather than a silent change to published numbers.
+
+**What this means for the reported slopes:** the measured de/dv on video is the sum of
+whatever the video does and an artefact of our own contact law. Until Hunt-Crossley is
+adopted and everything re-fitted, de/dv should not be reported as a material property.

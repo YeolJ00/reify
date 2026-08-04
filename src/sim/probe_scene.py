@@ -15,8 +15,14 @@ under gravity+contact alone and only becomes observable when the objects collide
 Forward rollout only (recovery is done by grid+CEM, which we've shown tolerates the
 rugged contact landscape better than gradients). (warp env.)
 """
+import os
+
 import numpy as np
 import warp as wp
+
+# HC=1 selects Hunt-Crossley damping (force proportional to penetration x velocity),
+# HC=0 the original linear damping. Compile-time constant so the kernel stays branch-free.
+HC = float(os.environ.get("PROBE_HUNT_CROSSLEY", "0"))
 
 from ..data.assets import decimate, load_asset
 from .diff_collide_6dof import integrate_6dof, unit_mass_inertia
@@ -47,7 +53,11 @@ def ground_contact_n(world: wp.array(dtype=wp.vec3), radius: float, body: wp.arr
         cpt = wp.vec3(world[s][0], world[s][1], ground_z)
         r = cpt - pos[b]
         vc = vlin[b] + wp.cross(vang[b], r)
-        fn = wp.max(k * pen - cd[0] * vc[2], 0.0)
+        # Hunt-Crossley: damping scales with penetration. Linear damping (cd*v) has to be
+        # clamped at zero to avoid adhesion, and that clamp is what gave our contact a
+        # restitution that RISES with impact speed (+0.058 per m/s measured on a control)
+        # where a spring-damper should be velocity-independent and real materials fall.
+        fn = wp.max(k * pen - HC * cd[0] * pen * vc[2] - (1.0 - HC) * cd[0] * vc[2], 0.0)
         vt = wp.vec3(vc[0], vc[1], 0.0)
         ft = -mu[0] * fn * vt / (wp.length(vt) + V_EPS)
         f = wp.vec3(ft[0], ft[1], fn)
@@ -80,7 +90,8 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
         rj = cpt - pos[bj]
         vrel = (vlin[bi] + wp.cross(vang[bi], ri)) - (vlin[bj] + wp.cross(vang[bj], rj))
         vn = wp.dot(vrel, n)
-        fn = wp.max(k * overlap - cd[0] * vn, 0.0)
+        fn = wp.max(k * overlap - HC * cd[0] * overlap * vn
+                    - (1.0 - HC) * cd[0] * vn, 0.0)
         vt = vrel - vn * n
         ft = -mu[0] * fn * vt / (wp.length(vt) + V_EPS)
         f = fn * n + ft
@@ -159,7 +170,16 @@ class ProbeScene:
             # half the hard bound: at 0.9x (cd=330 here) the model was still misbehaving,
             # giving e=0.64 where cd=200 gives e=0.00. Restitution is monotonic in cd only
             # well below the limit, which is the region a parameter search can use.
-            self._cd_limit = 0.5 * (2.0 * m_min / self.dt)
+            # Under Hunt-Crossley the damping force is cd*penetration*v, so the same
+            # bound applies to the PRODUCT: cd*pen < 2m/dt. A typical penetration is
+            # mg/k, so the admissible cd is larger by that factor. Without this the
+            # linear bound (183 here) clamped every Hunt-Crossley value to the same
+            # number and the comparison silently measured nothing.
+            base = 0.5 * (2.0 * m_min / self.dt)
+            if HC > 0.0:
+                pen_ref = max(m_min * 9.81 / max(float(k), 1e-9), 1e-6)
+                base = base / pen_ref
+            self._cd_limit = base
             if cd > self._cd_limit:
                 import warnings
                 warnings.warn(
