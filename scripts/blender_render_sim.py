@@ -98,17 +98,27 @@ def main():
     bpy.context.scene.camera = cam
 
     sc = bpy.context.scene
-    sc.render.engine = "CYCLES"; sc.cycles.samples = 48
-    sc.render.resolution_x = CAM["width"]; sc.render.resolution_y = CAM["height"]
+    # Quality is overridable so the CEM loop can render drafts. Defaults are unchanged,
+    # so every existing caller renders exactly as before. Whether a draft is good enough
+    # for the judge is a measured question, not an assumed one -- see j3_optimize.py.
+    sc.render.engine = os.environ.get("ENGINE", "CYCLES")
+    if sc.render.engine == "CYCLES":
+        sc.cycles.samples = int(os.environ.get("SAMPLES", 48))
+        if os.environ.get("NO_DENOISE"):
+            sc.cycles.use_denoising = False
+    scale = float(os.environ.get("RES_SCALE", 1.0))
+    sc.render.resolution_x = int(CAM["width"] * scale)
+    sc.render.resolution_y = int(CAM["height"] * scale)
     sc.render.image_settings.file_format = "PNG"
-    try:
-        prefs = bpy.context.preferences.addons["cycles"].preferences
-        prefs.compute_device_type = "CUDA"; prefs.get_devices()
-        for d in prefs.devices:
-            d.use = (d.type == "CUDA")
-        sc.cycles.device = "GPU"
-    except Exception as e:
-        print("GPU off:", e)
+    if sc.render.engine == "CYCLES":
+        try:
+            prefs = bpy.context.preferences.addons["cycles"].preferences
+            prefs.compute_device_type = "CUDA"; prefs.get_devices()
+            for d in prefs.devices:
+                d.use = (d.type == "CUDA")
+            sc.cycles.device = "GPU"
+        except Exception as e:
+            print("GPU off:", e)
 
     for key, info in poses.items():
         subj = info["subject"]
