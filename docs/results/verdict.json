@@ -1,0 +1,10 @@
+{
+  "rho": {
+    "rubber_duck": 0.7999999999999999,
+    "baseball": -0.3,
+    "ceramic_vase": -0.6,
+    "brass_pot": -0.7
+  },
+  "gap": 1.5,
+  "verdict": "PASS"
+}
