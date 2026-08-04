@@ -108,11 +108,13 @@ def main():
                 s.rollout()
                 return s.positions(SUBSTEPS)[:NF], s.rotations(SUBSTEPS)[:NF]
 
-            cd = 20.0
+            cd = 4000.0
             if what == "restitution" and r.get("e_mid") is not None:
-                # bounded to the stable, monotonic region of the contact model: past
-                # ~2m/dt the explicit penalty contact creates energy (measured e up to 9.9)
-                lo, hi, best = 0.5, 200.0, None
+                # Hunt-Crossley damping multiplies by penetration (~0.5 mm), so the
+                # useful cd is ~100x the linear one: measured e spans 0.83 down to 0.03
+                # over cd 500..20000. Still bounded, since the stability limit applies to
+                # the product cd*penetration.
+                lo, hi, best = 100.0, 20000.0, None
                 for _ in range(12):
                     t = float(np.sqrt(lo * hi))
                     P, Q = run(t)

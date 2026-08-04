@@ -2444,3 +2444,34 @@ rather than a silent change to published numbers.
 **What this means for the reported slopes:** the measured de/dv on video is the sum of
 whatever the video does and an artefact of our own contact law. Until Hunt-Crossley is
 adopted and everything re-fitted, de/dv should not be reported as a material property.
+
+---
+
+## M58 — Hunt-Crossley made the default; simulation side re-fitted
+
+`PROBE_HUNT_CROSSLEY` now defaults to 1. Linear damping is kept only for reproducing older
+results.
+
+**What actually had to be re-fitted, and what did not.** The measured parameters --
+restitution and friction -- come from video tracks and never touch the simulator, so they
+are unchanged by the contact law. What changes is the simulation side: the damping that
+reproduces each measured value, the renders, and the comparisons. Saying "re-fit
+everything" would overstate it; the measurement and the simulation are separate halves that
+meet only at a parameter value.
+
+**Both labs re-match exactly under the new contact law:**
+
+    expand      ceramic_vase e measured 0.084 -> simulated 0.084   cd 3343
+                rubber_duck  e measured 0.302 -> simulated 0.302
+    expand_neg  ceramic_vase e measured 0.266 -> simulated 0.266   cd 3343
+                rubber_duck  e measured 0.244 -> simulated 0.244   cd 3061
+
+The cd search was rescaled to [100, 20000]: Hunt-Crossley multiplies damping by penetration
+(~0.5 mm), so the useful values are ~100x the linear ones.
+
+**Energy check at the damping the fit actually chose** (cd 3061, 3343, 4000, across all
+three drop heights): no restitution exceeds 1. The contact no longer creates energy
+anywhere in the region the fit can reach -- which was not true two milestones ago, when
+cd=600 gave e=5.2 and cd=2000 gave e=9.9.
+
+Report regenerated and republished.

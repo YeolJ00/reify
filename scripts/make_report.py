@@ -391,6 +391,12 @@ per frame for as many frames as asked. Recovering θ and then generating the mot
 ourselves is the point of the project, not a by-product.</p>
 <div class="call"><b>Physics and rendering are separate layers that meet at one interface:
 per-frame object transforms.</b>
+<p>Contact is Hunt–Crossley: the damping force scales with penetration, so it vanishes at
+separation instead of being clamped. Linear damping gave a restitution whose velocity
+dependence <em>flipped sign with the damping value</em> (−0.055 at one setting, +0.058 at
+another) where a spring-damper should be velocity-independent; Hunt–Crossley is
+non-positive throughout, the direction real materials show. Verified at the damping values
+this fit chose: no energy created at any drop height.</p>
 <p>Warp integrates a sphere-cover proxy (802 spheres for the vase) and knows nothing about
 texture. The renderer needs textured triangles and a camera and knows nothing about contact.
 They meet only at the per-frame transform, which is why the same rollout can be drawn by

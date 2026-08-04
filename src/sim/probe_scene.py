@@ -20,9 +20,14 @@ import os
 import numpy as np
 import warp as wp
 
-# HC=1 selects Hunt-Crossley damping (force proportional to penetration x velocity),
-# HC=0 the original linear damping. Compile-time constant so the kernel stays branch-free.
-HC = float(os.environ.get("PROBE_HUNT_CROSSLEY", "0"))
+# Hunt-Crossley damping (force proportional to penetration x velocity) is the DEFAULT.
+# Linear damping (PROBE_HUNT_CROSSLEY=0) is kept only for reproducing older results: its
+# restitution has a spurious velocity dependence whose sign flips with the damping value
+# (cd=5 -> -0.055, cd=20 -> +0.058), because clamping `max(k*pen - cd*v, 0)` at separation
+# behaves differently depending on how damping-dominated the contact is. Hunt-Crossley
+# vanishes at separation without a clamp and gives de/dv <= 0 throughout, which is the
+# direction real materials show.
+HC = float(os.environ.get("PROBE_HUNT_CROSSLEY", "1"))
 
 from ..data.assets import decimate, load_asset
 from .diff_collide_6dof import integrate_6dof, unit_mass_inertia
