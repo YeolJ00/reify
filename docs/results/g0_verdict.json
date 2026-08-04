@@ -1,0 +1,22 @@
+{
+  "verdict": "FAIL",
+  "slices": [
+    {
+      "slice": "mu=0.9",
+      "rho_duck": 0.7,
+      "rho_pot": -0.39999999999999997,
+      "gap": 1.0999999999999999,
+      "sign_flip": true,
+      "not_magnitude": false
+    },
+    {
+      "slice": "mu~0.4",
+      "rho_duck": 0.4285714285714286,
+      "rho_pot": -0.5714285714285715,
+      "gap": 1.0,
+      "sign_flip": true,
+      "not_magnitude": true
+    }
+  ],
+  "match_frac": 0.5
+}
