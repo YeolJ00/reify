@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO))
 
 from src.render.clip import probe, render_frames, theta_key, write_mp4  # noqa: E402
 from src.sim.rollout import FlagSim  # noqa: E402
+from src.sim.stability import substeps_for  # noqa: E402
 
 OUT = REPO / "outputs" / "judge" / "j0"
 SECONDS = 3.0
@@ -28,25 +29,6 @@ THETAS = {
     "medium": {"tri_ke": 5.0e3, "tri_kd": 10.0, "mass": 0.05},
     "floppy": {"tri_ke": 2.0e2, "tri_kd": 2.0,  "mass": 0.05},
 }
-
-
-def substeps_for(ke, mass, fps, kd=10.0, cfl=0.15, damp_cfl=0.09, floor=32):
-    """Substeps the explicit solver needs to stay stable at this stiffness AND damping.
-
-    TWO conditions, not one. The config warns about both -- dt*sqrt(ke/m) for the stretch
-    force and kd/m*dt for the damping -- and implementing only the first sent me chasing
-    the wrong parameter: raising substeps for stiffness did not stop the "stiff" flag
-    exploding, because it was the kd=40 damping doing it. Measured directly at 36
-    substeps, kd=10 is stable and kd=20 is not, while stiffness runs to ke=4e4 happily
-    once its own condition is met.
-
-    The floor is the config's own 32 and it is a floor, not a starting point: dropping to
-    the 22 the stretch condition alone allowed blew up a flag that is stable at 32.
-    """
-    import math
-    need_k = math.sqrt(float(ke) / float(mass)) / (cfl * float(fps))
-    need_d = float(kd) / (damp_cfl * float(mass) * float(fps))
-    return max(int(math.ceil(need_k)), int(math.ceil(need_d)), int(floor))
 
 
 def build(cfg, theta, seconds):

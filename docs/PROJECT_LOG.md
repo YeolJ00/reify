@@ -2543,3 +2543,74 @@ reverse the ordering. J2 must treat that spread as the thing to beat.
 **Throughput: 1.36 s per (clip, material) with 3 paraphrases -> 44 pairs/min.** Judge loads
 in 14 s and uses 17.5 GB, leaving 33 GB free on a 49 GB card, so render and judge can share
 a GPU. A J2 sweep of 60 clips x 3 materials is ~4 min of judging plus ~5 min of rendering.
+
+---
+
+## J2 — KILL TEST: FAILED. 0 of 3 materials pass. J3 not built.
+
+The gate exists so this decision is made on evidence rather than momentum, and the evidence
+says stop.
+
+**Sweep.** 4 stiffness x 3 density x 3 damping = 36 cells, 31 usable (5 exploded in the
+low-stiffness / high-mass corner, where the damping constant is still too loose; those
+cells are not a plausible cloth anyway). Each cell simulated, explosion-checked, rendered to
+a 3 s clip, and scored against 3 materials with 3 paraphrases each -- 279 judge calls,
+128 s.
+
+**Result.**
+
+    material                spearman     AUC   spread   signal   verdict
+    light silk                +0.216   0.630    0.339   +0.135   FAIL
+    heavy canvas              +0.086   0.560    3.183   +0.120   FAIL
+    stiff plastic tarp        -0.251   0.270    1.837   -0.529   FAIL
+
+AUC 0.5 is chance. Silk is weakly right, canvas is chance, and **tarp is inverted**: the
+correct-region clips rank BELOW the wrong-material clips 73% of the time.
+
+**Why it fails, which matters more than that it fails.**
+
+*It is not tracking material, it is tracking motion magnitude.* Correlating score against
+each axis separately:
+
+    material              log ke   log mass   log kd   tip path
+    light silk            -0.173     +0.207   -0.428     +0.605
+    heavy canvas          +0.348     +0.135   +0.141     -0.131
+    stiff plastic tarp    -0.269     -0.275   -0.032     -0.096
+
+For silk the strongest single correlate by a wide margin is **tip path length (+0.605)** --
+how far the cloth travels -- not any material parameter. The J1 smoke signal looked correct
+precisely because it varied stiffness alone, which moves tip path monotonically; once
+density and damping vary independently, the material reading falls apart. That is the
+J0/J1 result being a confound rather than a signal, and it is exactly what the kill test is
+for.
+
+*Prompt sensitivity swamps the signal.* Canvas has a mean paraphrase spread of **3.18**
+against a between-region signal of **0.12** -- a factor of 26. Three paraphrases are not
+averaging out a nuisance; they are sampling three different questions.
+
+*The judge is asserting, not discriminating.* Every clip scores positive for silk and
+negative for canvas and tarp, whatever its parameters. The model has a strong prior about
+the rendered flag ("this looks like light fabric") that dominates the per-clip evidence.
+The frozen/black controls in J1 showed the same thing from the other side: the judge's
+dynamic range on *motion presence* (4.1 points) is an order of magnitude larger than its
+range on *material character* (0.4).
+
+**Not proceeding to J3.** Optimising theta against this score would maximise tip-path
+length under a silk prompt and minimise it under a tarp prompt, which is a motion-magnitude
+regressor wearing a material label -- and CEM would find the extremes of it efficiently.
+
+**Fallbacks, in the order I would try them** (for the human to choose):
+
+1. **Pairwise comparison instead of absolute scores.** The failure is dominated by a
+   constant per-material offset and by prompt framing, both of which cancel in an A-vs-B
+   question ("which of these two moves more like canvas?"). This also sidesteps the
+   saturation the spec anticipated. Cheapest to test and most likely to work.
+2. **Render appearance that carries material.** The clips are an untextured grey sheet, so
+   the only material cue available IS motion. Giving the cloth plausible albedo/sheen per
+   material class may let the judge use what it actually knows. Note this weakens the
+   claim that we are measuring physics.
+3. **A discriminative prompt over a description.** Ask for a ranking on one physical axis
+   ("does this fabric look heavy or light?") rather than for a material identity.
+
+Recommend 1 before any of the others, and re-running this same kill test against it -- the
+harness, sweep and clips are all reusable, so the retest costs judge time only.
