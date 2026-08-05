@@ -1,0 +1,98 @@
+[
+  {
+    "object": "rubber_duck",
+    "e": 0.03,
+    "plaus": 0.469,
+    "mat": -0.281
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.08,
+    "plaus": 0.125,
+    "mat": 0.187
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.22,
+    "plaus": 0.063,
+    "mat": -0.094
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.27,
+    "plaus": -0.094,
+    "mat": -0.094
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.42,
+    "plaus": -0.219,
+    "mat": -0.437
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.6,
+    "plaus": -0.094,
+    "mat": -0.281
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.71,
+    "plaus": -0.219,
+    "mat": -0.531
+  },
+  {
+    "object": "rubber_duck",
+    "e": 0.74,
+    "plaus": -0.187,
+    "mat": -0.219
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.04,
+    "plaus": -0.031,
+    "mat": 0.094
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.1,
+    "plaus": -0.312,
+    "mat": -0.0
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.22,
+    "plaus": -0.25,
+    "mat": 0.219
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.23,
+    "plaus": -0.25,
+    "mat": -0.0
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.47,
+    "plaus": -0.25,
+    "mat": 0.156
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.66,
+    "plaus": -0.469,
+    "mat": -0.0
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.8,
+    "plaus": -0.5,
+    "mat": -0.125
+  },
+  {
+    "object": "brass_pot",
+    "e": 0.81,
+    "plaus": -0.75,
+    "mat": -0.406
+  }
+]
