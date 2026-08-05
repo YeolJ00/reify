@@ -107,8 +107,16 @@ class PairwiseJudge:
         ]
         text = self.processor.apply_chat_template(
             msgs, tokenize=False, add_generation_prompt=True)
+        # do_sample_frames=False is NOT cosmetic. The processor defaults to
+        # do_sample_frames=True with fps=2 and min_frames=4; given a bare array it has no
+        # metadata, assumes 24 fps, computes a fraction-of-a-second duration, and clamps
+        # to the MINIMUM OF 4 FRAMES. Every clip in this project reached the model as 4
+        # frames regardless of how many were passed -- 6, 8, 12, 16 and 24 all produced
+        # grid_t=2. Frames are already chosen deliberately by sample_frames(), so the
+        # processor must not resample them.
         return self.processor(text=[text], images=None, videos=[vA, vB],
-                              return_tensors="pt").to(self.device)
+                              return_tensors="pt",
+                              do_sample_frames=False).to(self.device)
 
     def margin_from_inputs(self, inputs, fp32_head=True):
         """logprob(A) - logprob(B). Differentiable: no no_grad, no .item().
@@ -148,7 +156,8 @@ class PairwiseJudge:
         text = self.processor.apply_chat_template(
             msgs, tokenize=False, add_generation_prompt=True)
         inputs = self.processor(text=[text], images=None, videos=[vA, vB],
-                                return_tensors="pt").to(self.device)
+                                return_tensors="pt",
+                                do_sample_frames=False).to(self.device)
         if self._checked is None:
             n_tok = int(inputs["input_ids"].shape[-1])
             grid = inputs.get("video_grid_thw")
