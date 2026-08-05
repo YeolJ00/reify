@@ -28,6 +28,21 @@ PROMPTS = (
     "One of these is {material}. Judging only by the motion, which one? Answer A or B.",
 )
 
+# PLAUSIBILITY mode. Asking which motion is more physically believable, rather than which
+# matches a named material, plays to what this judge measurably does well: real-vs-frozen
+# separates by 0.77-2.71 with 4/4 correct and real-vs-reversed catches the blatant case,
+# while material-character effects were ~0.3 and unstable under friction. Material still
+# conditions the answer, but through the OBJECT VISIBLE IN THE RENDER and the prior over
+# theta -- not through a text label the judge has to ground.
+#
+# The hazard is rule 4's hacking ghost: "more believable" can degenerate into "more
+# motion". Callers must log motion magnitude alongside the score, not trust the score.
+PLAUSIBILITY_PROMPTS = (
+    "Which clip shows more physically realistic motion? Answer A or B.",
+    "One of these was simulated with wrong physics. Which one looks CORRECT? "
+    "Answer A or B.",
+)
+
 SYSTEM = ("You compare two videos of the same object. Answer with a single letter, "
           "A or B. Do not explain.")
 
@@ -76,6 +91,46 @@ class PairwiseJudge:
         v = sample_frames(path, self.n_frames)
         self._cache[key] = v
         return v
+
+    def build_inputs(self, vA, vB, question):
+        """Processor inputs for one ordering. Exposed so the G1 gradient pass can take
+        pixel_values_videos as a differentiable leaf instead of re-deriving the prompt."""
+        msgs = [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Clip A:"},
+                {"type": "video"},
+                {"type": "text", "text": "Clip B:"},
+                {"type": "video"},
+                {"type": "text", "text": question},
+            ]},
+        ]
+        text = self.processor.apply_chat_template(
+            msgs, tokenize=False, add_generation_prompt=True)
+        return self.processor(text=[text], images=None, videos=[vA, vB],
+                              return_tensors="pt").to(self.device)
+
+    def margin_from_inputs(self, inputs, fp32_head=True):
+        """logprob(A) - logprob(B). Differentiable: no no_grad, no .item().
+
+        fp32_head matters more than it looks. With the model's own bfloat16 head, logits
+        of order 30 have a spacing of 2^-8 * 32 = 0.125 -- and the margin came out as
+        EXACT multiples of 0.125, against a median pairwise margin of 0.234. The objective
+        was a staircase with about two usable levels, which no gradient method and no
+        finite-difference check can survive. Running just the final projection in float32
+        takes the smallest resolvable step from 0.125 to 0.0044, a 29x improvement, for
+        one matmul at a single position.
+        """
+        torch = self.torch
+        if fp32_head:
+            out = self.model(**inputs, output_hidden_states=True, logits_to_keep=1)
+            h = out.hidden_states[-1][0, -1].float()
+            logits = h @ self.model.lm_head.weight.float().T
+        else:
+            logits = self.model(**inputs, logits_to_keep=1).logits[0, -1].float()
+        lp = torch.log_softmax(logits, dim=-1)
+        return (torch.logsumexp(lp[self.a_ids], dim=0)
+                - torch.logsumexp(lp[self.b_ids], dim=0))
 
     def _one(self, vA, vB, question):
         """logprob(A) - logprob(B) at the first answer token, for this exact ordering."""
