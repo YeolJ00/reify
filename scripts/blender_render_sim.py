@@ -129,6 +129,7 @@ def main():
             o.location = ((home[n][0], home[n][1] + PARK_Y, home[n][2])
                           if n != subj else home[n])
         s = objs[subj]
+        base_scale = scene_cfg["objects"][subj]["scale"]
         s.rotation_mode = "QUATERNION"
         outdir = LAB / f"sim_{key}"
         outdir.mkdir(exist_ok=True)
@@ -136,10 +137,14 @@ def main():
             M = mathutils.Matrix([[p["mat"][r][c] for c in range(3)] for r in range(3)])
             s.rotation_quaternion = M.to_quaternion()
             s.location = mathutils.Vector(p["loc"])
+            # optional per-frame scale, used only to author shape-constancy violations
+            if "scale" in p:
+                s.scale = (base_scale * p["scale"],) * 3
             bpy.context.view_layer.update()
             sc.render.filepath = str(outdir / f"f{t:04d}.png")
             bpy.ops.render.render(write_still=True)
         s.rotation_mode = "XYZ"
+        s.scale = (base_scale,) * 3
         s.rotation_euler = (s.rotation_euler[0], s.rotation_euler[1],
                             scene_cfg["objects"][subj]["rot_z"])
         print(f"  rendered {key}: {len(info['poses'])} frames -> {outdir.name}")
