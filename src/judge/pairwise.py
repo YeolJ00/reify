@@ -108,7 +108,11 @@ class PairwiseJudge:
             self._checked = {"tokens": n_tok, "videos": n_vid,
                              "frames": int(vA.shape[0])}
         with torch.no_grad():
-            logits = self.model(**inputs).logits[0, -1].float()
+            # Only the last position is ever read, so run the LM head there alone. With
+            # two videos the prompt is ~1044 tokens and a ~150k vocab, so the full logits
+            # tensor is a ~600 MB allocation per call -- enough to OOM on a shared GPU,
+            # and pure waste. This also keeps the graph small for the G1 gradient pass.
+            logits = self.model(**inputs, logits_to_keep=1).logits[0, -1].float()
         lp = torch.log_softmax(logits, dim=-1)
         a = torch.logsumexp(lp[self.a_ids], dim=0).item()
         b = torch.logsumexp(lp[self.b_ids], dim=0).item()
