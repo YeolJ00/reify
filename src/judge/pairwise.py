@@ -33,12 +33,17 @@ SYSTEM = ("You compare two videos of the same object. Answer with a single lette
 
 
 class PairwiseJudge:
-    def __init__(self, model_id=MODEL, device="cuda:0", fps=4.0):
+    def __init__(self, model_id=MODEL, device="cuda:0", n_frames=12):
         import torch
         from transformers import AutoProcessor, Cosmos3OmniForConditionalGeneration
 
         self.torch = torch
-        self.fps = float(fps)
+        # Fixed FRAME COUNT, not fixed fps. Clips are trimmed to the event window, which
+        # is ~0.5-1 s; at the card's 4 fps that would be 2-4 frames. Sampling n frames
+        # evenly across whatever the clip is keeps the whole event in view and makes
+        # clips of different lengths comparable. This is a judge change under rule 3 and
+        # requires its own calibration run.
+        self.n_frames = int(n_frames)
         self.processor = AutoProcessor.from_pretrained(model_id)
         self.model = Cosmos3OmniForConditionalGeneration.from_pretrained(
             model_id, dtype=torch.bfloat16, device_map=device)
@@ -62,20 +67,13 @@ class PairwiseJudge:
         return sorted(set(out))
 
     def _decode(self, path):
-        """Own decoder, subsampled to the card's 4 fps. Cached: the kill test reuses each
-        clip across many pairs, and decoding dominates otherwise."""
+        """n frames spread evenly over the clip. Cached: the kill test reuses each clip
+        across many pairs, and decoding dominates otherwise."""
         key = str(path)
         if key in self._cache:
             return self._cache[key]
-        import imageio.v2 as imageio
-        rd = imageio.get_reader(key)
-        src = float(rd.get_meta_data().get("fps", 30.0))
-        step = max(int(round(src / self.fps)), 1)
-        frames = [f[..., :3] for i, f in enumerate(rd) if i % step == 0]
-        rd.close()
-        if not frames:
-            raise RuntimeError(f"no frames decoded from {path}")
-        v = np.stack(frames)
+        from src.render.motion_budget import sample_frames
+        v = sample_frames(path, self.n_frames)
         self._cache[key] = v
         return v
 
