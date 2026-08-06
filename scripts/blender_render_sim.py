@@ -133,6 +133,11 @@ def main():
         s.rotation_mode = "QUATERNION"
         outdir = LAB / f"sim_{key}"
         outdir.mkdir(exist_ok=True)
+        # resume: a clip whose frames are all present is skipped. Long Cycles passes on a
+        # shared box get killed by other jobs taking the card, and re-rendering completed
+        # clips wastes the whole run.
+        if len(list(outdir.glob("f*.png"))) == len(info["poses"]):
+            print(f"  skip {key}: already complete"); continue
         for t, p in enumerate(info["poses"]):
             M = mathutils.Matrix([[p["mat"][r][c] for c in range(3)] for r in range(3)])
             s.rotation_quaternion = M.to_quaternion()
