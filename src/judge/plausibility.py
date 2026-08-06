@@ -33,15 +33,24 @@ SYSTEM = "Answer with a single letter, A or B. Do not explain."
 
 
 class PlausibilityJudge:
-    def __init__(self, model_id=MODEL, device="cuda:0", n_frames=None):
+    def __init__(self, model_id=MODEL, device="cuda:0", n_frames=None, load_in_8bit=False):
+        """load_in_8bit is for Cosmos3-Super. transformers already drops the generation
+        expert on load (_COSMOS3_DROPPED_UNIFIED_CHECKPOINT_KEYS includes moe_gen), so the
+        reasoner alone is ~30.5B params -- still ~61 GB in bf16, which does not fit a
+        48 GB card. int8 brings it to ~31 GB and does fit."""
         import torch
         from transformers import AutoProcessor, Cosmos3OmniForConditionalGeneration
 
         self.torch = torch
         self.n_frames = n_frames          # None = every frame in the clip
         self.processor = AutoProcessor.from_pretrained(model_id)
+        kw = {}
+        if load_in_8bit:
+            from transformers import BitsAndBytesConfig
+            kw["quantization_config"] = BitsAndBytesConfig(
+                load_in_8bit=True, llm_int8_skip_modules=["lm_head"])
         self.model = Cosmos3OmniForConditionalGeneration.from_pretrained(
-            model_id, dtype=torch.bfloat16, device_map=device)
+            model_id, dtype=torch.bfloat16, device_map=device, **kw)
         self.model.eval()
         self.device = device
         tok = self.processor.tokenizer

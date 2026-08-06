@@ -1,0 +1,294 @@
+[
+  {
+    "clip": "brass_pot_cd1200_mu050__permanence.mp4",
+    "base": "brass_pot_cd1200_mu050",
+    "cond": "permanence",
+    "set": "phys",
+    "M": 3.181,
+    "plausible": 0.334,
+    "natural": -1.848,
+    "material": -1.351
+  },
+  {
+    "clip": "brass_pot_cd1200_mu050__shape.mp4",
+    "base": "brass_pot_cd1200_mu050",
+    "cond": "shape",
+    "set": "phys",
+    "M": 5.687,
+    "plausible": 1.273,
+    "natural": -0.498,
+    "material": -0.61
+  },
+  {
+    "clip": "brass_pot_cd1200_mu050__teleport.mp4",
+    "base": "brass_pot_cd1200_mu050",
+    "cond": "teleport",
+    "set": "phys",
+    "M": 4.99,
+    "plausible": 1.484,
+    "natural": -0.888,
+    "material": -0.913
+  },
+  {
+    "clip": "brass_pot_cd1200_mu050__valid.mp4",
+    "base": "brass_pot_cd1200_mu050",
+    "cond": "valid",
+    "set": "phys",
+    "M": 3.188,
+    "plausible": 3.713,
+    "natural": -0.355,
+    "material": 0.454
+  },
+  {
+    "clip": "brass_pot_cd300_mu050__permanence.mp4",
+    "base": "brass_pot_cd300_mu050",
+    "cond": "permanence",
+    "set": "phys",
+    "M": 2.38,
+    "plausible": 0.457,
+    "natural": -3.881,
+    "material": -2.045
+  },
+  {
+    "clip": "brass_pot_cd300_mu050__shape.mp4",
+    "base": "brass_pot_cd300_mu050",
+    "cond": "shape",
+    "set": "phys",
+    "M": 4.309,
+    "plausible": 1.323,
+    "natural": -4.15,
+    "material": -3.519
+  },
+  {
+    "clip": "brass_pot_cd300_mu050__teleport.mp4",
+    "base": "brass_pot_cd300_mu050",
+    "cond": "teleport",
+    "set": "phys",
+    "M": 4.785,
+    "plausible": 2.111,
+    "natural": -3.657,
+    "material": -2.46
+  },
+  {
+    "clip": "brass_pot_cd300_mu050__valid.mp4",
+    "base": "brass_pot_cd300_mu050",
+    "cond": "valid",
+    "set": "phys",
+    "M": 2.852,
+    "plausible": 1.717,
+    "natural": -3.098,
+    "material": -2.456
+  },
+  {
+    "clip": "rubber_duck_cd1200_mu050__permanence.mp4",
+    "base": "rubber_duck_cd1200_mu050",
+    "cond": "permanence",
+    "set": "phys",
+    "M": 2.061,
+    "plausible": 4.175,
+    "natural": -0.327,
+    "material": 0.709
+  },
+  {
+    "clip": "rubber_duck_cd1200_mu050__shape.mp4",
+    "base": "rubber_duck_cd1200_mu050",
+    "cond": "shape",
+    "set": "phys",
+    "M": 4.291,
+    "plausible": 3.284,
+    "natural": 0.017,
+    "material": 1.416
+  },
+  {
+    "clip": "rubber_duck_cd1200_mu050__teleport.mp4",
+    "base": "rubber_duck_cd1200_mu050",
+    "cond": "teleport",
+    "set": "phys",
+    "M": 4.169,
+    "plausible": 5.037,
+    "natural": -0.053,
+    "material": 1.584
+  },
+  {
+    "clip": "rubber_duck_cd1200_mu050__valid.mp4",
+    "base": "rubber_duck_cd1200_mu050",
+    "cond": "valid",
+    "set": "phys",
+    "M": 2.106,
+    "plausible": 6.314,
+    "natural": 0.795,
+    "material": 2.282
+  },
+  {
+    "clip": "rubber_duck_cd300_mu050__permanence.mp4",
+    "base": "rubber_duck_cd300_mu050",
+    "cond": "permanence",
+    "set": "phys",
+    "M": 3.692,
+    "plausible": 0.381,
+    "natural": -3.602,
+    "material": -2.006
+  },
+  {
+    "clip": "rubber_duck_cd300_mu050__shape.mp4",
+    "base": "rubber_duck_cd300_mu050",
+    "cond": "shape",
+    "set": "phys",
+    "M": 6.134,
+    "plausible": 0.418,
+    "natural": -3.037,
+    "material": -2.261
+  },
+  {
+    "clip": "rubber_duck_cd300_mu050__teleport.mp4",
+    "base": "rubber_duck_cd300_mu050",
+    "cond": "teleport",
+    "set": "phys",
+    "M": 5.045,
+    "plausible": 0.194,
+    "natural": -2.544,
+    "material": -1.104
+  },
+  {
+    "clip": "rubber_duck_cd300_mu050__valid.mp4",
+    "base": "rubber_duck_cd300_mu050",
+    "cond": "valid",
+    "set": "phys",
+    "M": 3.819,
+    "plausible": 0.696,
+    "natural": -3.217,
+    "material": -1.601
+  },
+  {
+    "clip": "brass_pot_cd5000_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.0990583045855053,
+    "M": 1.611,
+    "plausible": -0.134,
+    "natural": 1.273,
+    "material": 1.369
+  },
+  {
+    "clip": "brass_pot_cd10000_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.146362081169718,
+    "M": 1.709,
+    "plausible": 1.597,
+    "natural": 0.151,
+    "material": 1.189
+  },
+  {
+    "clip": "brass_pot_cd2500_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.23276892257777726,
+    "M": 1.666,
+    "plausible": 4.436,
+    "natural": 1.857,
+    "material": 2.488
+  },
+  {
+    "clip": "brass_pot_cd1200_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.4692179061493122,
+    "M": 3.19,
+    "plausible": 3.47,
+    "natural": 0.394,
+    "material": 0.272
+  },
+  {
+    "clip": "brass_pot_cd600_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.6650476395106024,
+    "M": 3.06,
+    "plausible": 2.187,
+    "natural": -1.039,
+    "material": -1.537
+  },
+  {
+    "clip": "brass_pot_cd300_mu050.mp4",
+    "base": "brass_pot",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.8043369656573681,
+    "M": 2.853,
+    "plausible": 1.54,
+    "natural": -3.189,
+    "material": -2.661
+  },
+  {
+    "clip": "rubber_duck_cd10000_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.03497718026482592,
+    "M": 1.075,
+    "plausible": 6.732,
+    "natural": 3.702,
+    "material": 4.384
+  },
+  {
+    "clip": "rubber_duck_cd5000_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.07879514082259045,
+    "M": 1.624,
+    "plausible": 3.402,
+    "natural": -0.26,
+    "material": 0.751
+  },
+  {
+    "clip": "rubber_duck_cd2500_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.21378800580509658,
+    "M": 1.944,
+    "plausible": 5.323,
+    "natural": 1.236,
+    "material": 2.141
+  },
+  {
+    "clip": "rubber_duck_cd1200_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.42276893187027004,
+    "M": 2.106,
+    "plausible": 6.384,
+    "natural": 0.782,
+    "material": 1.796
+  },
+  {
+    "clip": "rubber_duck_cd600_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.6042173305368366,
+    "M": 3.228,
+    "plausible": 1.342,
+    "natural": -1.017,
+    "material": 0.444
+  },
+  {
+    "clip": "rubber_duck_cd300_mu050.mp4",
+    "base": "rubber_duck",
+    "cond": "sweep",
+    "set": "sweep",
+    "e": 0.7371979305508966,
+    "M": 3.817,
+    "plausible": 0.881,
+    "natural": -2.746,
+    "material": -1.72
+  }
+]
