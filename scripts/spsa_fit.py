@@ -67,14 +67,40 @@ def to_theta(x):
     return {"cd": float(10.0 ** x[0]), "mu": float(10.0 ** x[1])}
 
 
+def pick_render_gpu():
+    """A GPU for Newton and Cycles that is NOT the one holding the judge.
+
+    The judge occupies ~35 GB, so on a 48 GB card only ~3 GB is left and Cycles OOMs
+    immediately. Rendering therefore needs a second device. This picks the freest other
+    card at call time and holds it only for the duration of the subprocess.
+    """
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=index,memory.used,memory.total",
+         "--format=csv,noheader,nounits"], capture_output=True, text=True).stdout
+    mine = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    best, bestfree = None, 0
+    for line in out.strip().splitlines():
+        i, used, tot = [x.strip() for x in line.split(",")]
+        if i == mine:
+            continue
+        free = int(tot) - int(used)
+        if free > bestfree:
+            best, bestfree = i, free
+    if best is None or bestfree < 6000:
+        raise RuntimeError(f"no render GPU with >=6 GB free (best {bestfree} MiB)")
+    return best
+
+
 def run_batch(judge, obj, xs, tag):
     """Simulate, render and score a list of theta. Returns list of dicts (None if unusable)."""
     from src.render.motion_budget import sample_frames, check
 
     batch = {f"{tag}_{i}": {"object": obj, **to_theta(x)} for i, x in enumerate(xs)}
     (RUN / "batch_in.json").write_text(json.dumps(batch))
+    gpu = pick_render_gpu()
+    genv = {**os.environ, "CUDA_VISIBLE_DEVICES": gpu}
     r = subprocess.run([WARP_PY, str(REPO / "scripts" / "spsa_sim_batch.py"), str(RUN)],
-                       cwd=REPO, capture_output=True, text=True, env=dict(os.environ))
+                       cwd=REPO, capture_output=True, text=True, env=genv)
     if r.returncode != 0:
         raise RuntimeError(f"sim failed:\n{r.stdout[-1500:]}\n{r.stderr[-1500:]}")
     meta = json.loads((RUN / "batch_out.json").read_text())
@@ -87,7 +113,7 @@ def run_batch(judge, obj, xs, tag):
     rr = subprocess.run([BLENDER, "--background", "--python",
                          str(REPO / "scripts" / "blender_render_sim.py")],
                         cwd=REPO, capture_output=True, text=True,
-                        env={**os.environ, "LAB": str(RUN)})
+                        env={**genv, "LAB": str(RUN)})
     if rr.returncode != 0:
         raise RuntimeError(f"render failed:\n{rr.stdout[-1500:]}")
 
