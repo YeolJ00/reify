@@ -107,7 +107,8 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
 
 
 class ProbeScene:
-    def __init__(self, names, pos0, vel0, ang0=None, densities=(600.0, 600.0), ground_z=0.706,
+    def __init__(self, names, pos0, vel0, ang0=None, com_offset=None,
+                 densities=(600.0, 600.0), ground_z=0.706,
                  pitch=0.020, dt=2.0e-4, n_steps=1400, k=4000.0, cd=8.0, mu=0.5,
                  gravity=(0.0, 0.0, -9.81), ball_radius=None, mesh_scale=None):
         # ball_radius: model each body as a single solid sphere instead of a scanned mesh
@@ -146,6 +147,30 @@ class ProbeScene:
                 self.radius = float(r)
                 cl.append(centers); body.append(np.full(len(centers), bi, np.int32))
                 vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch_b ** 3)
+        # CENTRE OF MASS. The integrator advances `pos` as the body's centre of mass and
+        # applies contact at pos + R @ center_local, so displacing the sphere cover
+        # relative to the origin IS a CoM offset -- shifting centres by -c puts the CoM at
+        # +c relative to the geometry. Inertia is recomputed on the shifted centres below,
+        # so it stays consistent about the new origin rather than the geometric centroid.
+        #
+        # This is the parameter the tilt probe already measures for free: a body topples
+        # when gravity's line through the CoM leaves the base of support, so the topple
+        # ANGLE reads CoM height and the topple DIRECTION reads its lateral offset. Both
+        # are mass-independent, and both are thresholds rather than motion magnitudes.
+        if com_offset is not None:
+            off = np.asarray(com_offset, np.float64)
+            if off.ndim == 1:
+                off = np.tile(off, (self.N, 1))
+            bod = np.concatenate(body)
+            for bi in range(self.N):
+                cl_cat = np.concatenate(cl) if bi == 0 else cl_cat
+            cl_cat = np.concatenate(cl).astype(np.float64)
+            for bi in range(self.N):
+                cl_cat[bod == bi] -= off[bi]
+            cl = [cl_cat[bod == bi] for bi in range(self.N)]
+            body = [np.full(int((bod == bi).sum()), bi, np.int32) for bi in range(self.N)]
+        self.com_offset = (np.zeros((self.N, 3)) if com_offset is None
+                           else np.asarray(com_offset, float).reshape(self.N, 3))
         self.center_local = wp.array(np.concatenate(cl), dtype=wp.vec3)
         self.body = wp.array(np.concatenate(body), dtype=int)
         self.nS = int(self.body.shape[0])
