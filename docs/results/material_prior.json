@@ -1,0 +1,22 @@
+{
+  "rubber_duck": {
+    "material": "rubber",
+    "density": 1000.0,
+    "form": "solid"
+  },
+  "brass_pot": {
+    "material": "metal",
+    "density": 8430.0,
+    "form": "solid"
+  },
+  "ceramic_vase": {
+    "material": "rubber",
+    "density": 2700.0,
+    "form": "solid"
+  },
+  "baseball": {
+    "material": "wood",
+    "density": 1000.0,
+    "form": "solid"
+  }
+}
