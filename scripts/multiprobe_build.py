@@ -47,8 +47,11 @@ GZ = 0.706
 PIVOT = np.array([-0.05, -0.06, GZ])
 
 # tilt probe: flat-based objects only, spread along -x so they slide into frame
-TILT_OBJECTS = [("book", 0.15, -0.26), ("brass_pot", 0.35, -0.09),
-                ("ceramic_vase", 0.55, 0.08), ("wooden_bowl", 0.80, 0.25)]
+# spacing widened from 0.17 m to 0.30 m after measuring that adjacent crop boxes
+# intersected -- the brass pot's crop contained the vase, which makes a per-object
+# question ambiguous. Two objects per scene, two scenes, still 1 render per 2 queries.
+TILT_OBJECTS = [("book", 0.15, -0.30), ("brass_pot", 0.55, 0.30)]
+TILT_OBJECTS_B = [("wooden_bowl", 0.25, -0.30), ("ceramic_vase", 0.80, 0.30)]
 # RAMP rather than a fixed incline. At a fixed angle the slide DISTANCE varies enormously
 # with mu (measured: 0.02 m to 3.96 m across these four objects), which is a pure
 # motion-magnitude difference and would rebuild the confound the probe exists to avoid.
@@ -58,8 +61,7 @@ TILT_DEG_START, TILT_DEG_END = 4.0, 34.0
 TILT_FRAMES = 48
 
 # drop probe (control): same four objects, differing restitution
-DROP_OBJECTS = [("book", 1200.0, -0.26), ("brass_pot", 2600.0, -0.09),
-                ("ceramic_vase", 4400.0, 0.08), ("wooden_bowl", 7500.0, 0.25)]
+DROP_OBJECTS = [("book", 1200.0, -0.30), ("brass_pot", 7500.0, 0.30)]
 DROP_LIFT = 0.22
 DROP_FRAMES = 36
 
@@ -109,51 +111,52 @@ def do_sim():
 
     with wp.ScopedDevice("cuda:0"):
         # ---- TILT: one rollout per object, all sharing the same incline and clip length
-        tilt_objs, tilt_meta = {}, {}
         ramp = np.linspace(TILT_DEG_START, TILT_DEG_END, TILT_FRAMES)
-        for obj, mu, y in TILT_OBJECTS:
-            name, sc, vm, Rz, rad, zmin = prep(cfg, obj)
-            pos = [PIVOT[0] - 0.10, y, GZ + rad - zmin + 0.002]
-            vel = [0.0, 0.0, 0.0]
-            Ps, Qs = [], []
-            # step the ramp one frame at a time, carrying state forward
-            for f in range(TILT_FRAMES):
-                g = tilt_gravity(np.deg2rad(ramp[f]))
-                s = ProbeScene([name], [pos], [vel], densities=(DENSITY,), ground_z=GZ,
-                               dt=1.0 / (FPS * SUBSTEPS), n_steps=SUBSTEPS,
-                               k=K_CONTACT, cd=3000.0, mu=float(mu),
-                               mesh_scale=[sc], pitch=PITCH, gravity=g)
-                s.rollout()
-                P, Q = s.positions(SUBSTEPS), s.rotations(SUBSTEPS)
-                if not np.isfinite(P).all():
-                    break
-                Ps.append(P[-1, 0].copy()); Qs.append(Q[-1, 0].copy())
-                vel = [float(v) for v in (P[-1, 0] - P[0, 0]) * FPS]
-                pos = [float(v) for v in P[-1, 0]]
-            if len(Ps) < TILT_FRAMES:
-                print(f"  tilt {obj}: unstable, skipped"); continue
-            P = np.array(Ps)[:, None, :]; Q = np.array(Qs)[:, None, :]
-            d = np.linalg.norm(P[:, 0, :2] - P[0, 0, :2], axis=1)
-            onset = next((f for f in range(TILT_FRAMES) if d[f] > 0.012), None)
-            tilt_objs[obj] = to_poses(P, Q, Rz, vm,
-                                      rot=None, n=TILT_FRAMES)
-            # per-frame rotation: each frame uses ITS OWN ramp angle
-            tilt_objs[obj] = [
-                {"loc": [float(x) for x in (PIVOT + ry(np.deg2rad(ramp[t]))
-                                            @ (np.array(p["loc"]) - PIVOT))],
-                 "mat": [[float(v) for v in r]
-                         for r in (ry(np.deg2rad(ramp[t])) @ np.array(p["mat"]))]}
-                for t, p in enumerate(tilt_objs[obj])]
-            tilt_meta[obj] = {"mu": mu, "slide_m": round(float(d[-1]), 4),
-                              "onset_frame": onset,
-                              "onset_deg": float(ramp[onset]) if onset is not None else None,
-                              "world_pts": P[:, 0, :].tolist(),
-                              "ramp_deg": ramp.tolist()}
-            od = f"{ramp[onset]:.1f}d" if onset is not None else "none"
-            print(f"  tilt  {obj:<14} mu={mu:.2f}  onset={od:<6} "
-                  f"total slide={d[-1]:.3f} m")
-        scenes["tilt"] = {"tilt_deg": ramp.tolist(), "objects": tilt_objs}
-        meta["tilt"] = tilt_meta
+        for _set, _name in ((TILT_OBJECTS, "tilt"), (TILT_OBJECTS_B, "tiltB")):
+            tilt_objs, tilt_meta = {}, {}
+            for obj, mu, y in _set:
+                name, sc, vm, Rz, rad, zmin = prep(cfg, obj)
+                pos = [PIVOT[0] - 0.10, y, GZ + rad - zmin + 0.002]
+                vel = [0.0, 0.0, 0.0]
+                Ps, Qs = [], []
+                # step the ramp one frame at a time, carrying state forward
+                for f in range(TILT_FRAMES):
+                    g = tilt_gravity(np.deg2rad(ramp[f]))
+                    s = ProbeScene([name], [pos], [vel], densities=(DENSITY,), ground_z=GZ,
+                                   dt=1.0 / (FPS * SUBSTEPS), n_steps=SUBSTEPS,
+                                   k=K_CONTACT, cd=3000.0, mu=float(mu),
+                                   mesh_scale=[sc], pitch=PITCH, gravity=g)
+                    s.rollout()
+                    P, Q = s.positions(SUBSTEPS), s.rotations(SUBSTEPS)
+                    if not np.isfinite(P).all():
+                        break
+                    Ps.append(P[-1, 0].copy()); Qs.append(Q[-1, 0].copy())
+                    vel = [float(v) for v in (P[-1, 0] - P[0, 0]) * FPS]
+                    pos = [float(v) for v in P[-1, 0]]
+                if len(Ps) < TILT_FRAMES:
+                    print(f"  tilt {obj}: unstable, skipped"); continue
+                P = np.array(Ps)[:, None, :]; Q = np.array(Qs)[:, None, :]
+                d = np.linalg.norm(P[:, 0, :2] - P[0, 0, :2], axis=1)
+                onset = next((f for f in range(TILT_FRAMES) if d[f] > 0.012), None)
+                tilt_objs[obj] = to_poses(P, Q, Rz, vm,
+                                          rot=None, n=TILT_FRAMES)
+                # per-frame rotation: each frame uses ITS OWN ramp angle
+                tilt_objs[obj] = [
+                    {"loc": [float(x) for x in (PIVOT + ry(np.deg2rad(ramp[t]))
+                                                @ (np.array(p["loc"]) - PIVOT))],
+                     "mat": [[float(v) for v in r]
+                             for r in (ry(np.deg2rad(ramp[t])) @ np.array(p["mat"]))]}
+                    for t, p in enumerate(tilt_objs[obj])]
+                tilt_meta[obj] = {"mu": mu, "slide_m": round(float(d[-1]), 4),
+                                  "onset_frame": onset,
+                                  "onset_deg": float(ramp[onset]) if onset is not None else None,
+                                  "world_pts": P[:, 0, :].tolist(),
+                                  "ramp_deg": ramp.tolist()}
+                od = f"{ramp[onset]:.1f}d" if onset is not None else "none"
+                print(f"  tilt  {obj:<14} mu={mu:.2f}  onset={od:<6} "
+                      f"total slide={d[-1]:.3f} m")
+            scenes[_name] = {"tilt_deg": ramp.tolist(), "objects": tilt_objs}
+            meta[_name] = tilt_meta
 
         # ---- DROP control: same objects, restitution varied
         drop_objs, drop_meta = {}, {}

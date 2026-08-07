@@ -20,7 +20,7 @@ def project_points(cam, pts):
     return np.asarray(uv, float), np.asarray(ok, bool)
 
 
-def crop_box(cam, pts_over_time, width, height, pad=0.35, min_px=96):
+def crop_box(cam, pts_over_time, width, height, pad=0.12, min_px=72):
     """Static box covering the object for the whole clip.
 
     pts_over_time: (T, K, 3) world points (sphere-cover centres are ideal).
@@ -73,3 +73,17 @@ def occupancy(frames, box):
     if len(c) < 2:
         return 0.0
     return float(np.abs(np.diff(c, axis=0)).mean())
+
+
+def iou(a, b):
+    """Overlap between two crop boxes. Non-zero means a judge asked about one object is
+    also being shown another, which makes the answer ambiguous."""
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    ix = max(0, min(ax1, bx1) - max(ax0, bx0))
+    iy = max(0, min(ay1, by1) - max(ay0, by0))
+    inter = ix * iy
+    if inter == 0:
+        return 0.0
+    ua = (ax1 - ax0) * (ay1 - ay0) + (bx1 - bx0) * (by1 - by0) - inter
+    return float(inter / ua)
