@@ -30,12 +30,16 @@ GROUND_Z = 0.706
 FRAME = 30           # mid-clip, objects in motion
 
 # name -> (hdri, strength, backdrop, key light watts, floor colour)
+# The grey band under the table in every earlier render is OUR OWN floor plane. It is set
+# near-black but the HDRI lights it to mid-grey, and worse it OCCLUDES the environment's own
+# ground -- so the street disappears below the horizon and is replaced by a flat slab. A
+# shadow catcher fixes both: invisible to camera, still receives contact shadows, so the
+# HDRI's ground shows through and the table still sits on something.
 LOOKS = {
-    "A_current":   (CITY, 1.0, "none", 0, (.05, .05, .06)),
-    "B_studio":    (STUDIO, 1.0, "none", 0, (.05, .05, .06)),
-    "C_studio_bg": (STUDIO, 0.6, "seamless", 0, (.18, .17, .16)),
-    "D_key_light": (STUDIO, 0.35, "seamless", 320, (.18, .17, .16)),
-    "E_soft_dark": (STUDIO, 0.25, "seamless", 180, (.07, .07, .08)),
+    "A_current":   (CITY, 1.0, "none", 0, "solid"),
+    "F_city_catch": (CITY, 1.0, "none", 0, "catcher"),
+    "G_city_bright": (CITY, 1.6, "none", 0, "catcher"),
+    "H_city_key":  (CITY, 1.0, "none", 260, "catcher"),
 }
 
 
@@ -81,18 +85,21 @@ def main():
     info = poses[key]
     OUT.mkdir(parents=True, exist_ok=True)
 
-    for name, (hdri, strength, backdrop, watts, floor_col) in LOOKS.items():
+    for name, (hdri, strength, backdrop, watts, floor_mode) in LOOKS.items():
         clear()
         world_hdri(hdri, strength)
 
         # floor, and optionally a seamless curved backdrop that removes the street cutout
         bpy.ops.mesh.primitive_plane_add(size=40)
         fl = bpy.context.active_object
-        m = bpy.data.materials.new("floor"); m.use_nodes = True
-        p = m.node_tree.nodes["Principled BSDF"]
-        p.inputs["Base Color"].default_value = (*floor_col, 1)
-        p.inputs["Roughness"].default_value = 0.85
-        fl.data.materials.append(m)
+        if floor_mode == "catcher":
+            fl.is_shadow_catcher = True          # invisible, still takes contact shadow
+        else:
+            m = bpy.data.materials.new("floor"); m.use_nodes = True
+            pp = m.node_tree.nodes["Principled BSDF"]
+            pp.inputs["Base Color"].default_value = (.05, .05, .06, 1)
+            pp.inputs["Roughness"].default_value = 0.85
+            fl.data.materials.append(m)
         if backdrop == "seamless":
             # a large curved wall behind the table: the HDRI's street imagery reads as a
             # cutout across the top of frame, which is scene clutter with no physical role
