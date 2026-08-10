@@ -84,7 +84,38 @@ def slide_matched_angle(run_at_angle, target_m, angles_rad, tol=0.15):
     return best, bd
 
 
-# Objects whose base is flat enough that they slide rather than roll. Spheres are excluded
-# on measurement, not on intuition: the baseball's slip angle is flat in mu.
-SLIDES = ("book", "brass_pot", "ceramic_vase", "wooden_bowl")
-ROLLS = ("baseball", "apple")
+# Classification by GEOMETRY, not by name. base/height = min(extent_x, extent_y) / extent_z.
+# A body slides only if its base is wide relative to its height; otherwise gravity's line
+# through the CoM leaves the base of support before friction is overcome, and it topples.
+#
+#   object          size cm            base/height   behaviour
+#   wooden_bowl   19.4 x 19.2 x  5.8       3.30      slides
+#   brass_pot     18.7 x 18.7 x 18.0       1.04      marginal
+#   apple          9.8 x  9.6 x  8.5       1.12      rolls
+#   baseball       7.4 x  7.5 x  7.5       0.98      rolls
+#   rubber_duck   13.2 x 18.6 x 17.7       0.75      topples
+#   book          23.2 x  6.8 x 10.0       0.68      topples
+#   ceramic_vase  12.6 x 12.6 x 24.8       0.51      topples
+#
+# The BOOK was in SLIDES on the strength of its name. It is book_encyclopedia_set_01, a row
+# of volumes standing upright -- 6.8 cm deep against 10 cm tall -- so it tips rather than
+# slides. That is why it travelled 3.96 m at mu=0.15 (it fell over and tumbled), barely
+# moved at mu=0.855, collapsed to the 72 px crop floor, and gave the worst SPSA gradient
+# consistency of the three objects (3/8). Its earlier +0.918 slip-angle correlation was
+# measured on a fixed shallow incline where it had not yet toppled.
+SLIDE_RATIO_MIN, TOPPLE_RATIO_MAX = 1.4, 0.9
+SLIDES = ("wooden_bowl",)              # clean sliders in the staged scene
+MARGINAL = ("brass_pot",)              # usable, but verify it has not toppled
+TOPPLES = ("book", "ceramic_vase", "rubber_duck")   # these read CoM, not friction
+ROLLS = ("baseball", "apple")          # no slip threshold at all
+
+
+def classify(extents_cm):
+    """Which probe an object supports, from its bounding box alone."""
+    x, y, z = extents_cm
+    r = min(x, y) / z
+    if r >= SLIDE_RATIO_MIN:
+        return "slides"
+    if r <= TOPPLE_RATIO_MAX:
+        return "topples"
+    return "marginal"
