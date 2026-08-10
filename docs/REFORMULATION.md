@@ -13,11 +13,49 @@ and no ground truth. We give them physical parameters **θ** by:
 The deliverable is **plausible parameters**, not recovered true ones. "Did we recover the
 true friction" is not a question this project can ask; "does it move like what it is" is.
 
-The judge supplies a **prior**, not a likelihood. There is no observation to condition on,
-so `J(θ) = judge(θ) + log p(θ)` is finding the mode of a learned prior over parameters,
-restricted to the physical manifold. Weak identifiability is therefore structural rather
-than a defect: where the prior is flat, many θ are acceptable, and multi-start scatter is
-the uncertainty report.
+### The judge is a LIKELIHOOD, and we have been using the wrong function of it
+
+An earlier draft here claimed the judge supplies a prior because there is nothing to
+condition on. That was wrong. The judge's approval **is** the observation:
+
+    p(θ | yes)  ∝  p(yes | θ) · p(θ)
+
+`p(yes | θ)` is a proper likelihood — the probability that the judge approves the clip
+rendered from θ. MAP is then likelihood times prior in the ordinary way, and weak
+identifiability is a property of a flat likelihood rather than something exotic.
+
+**But the logit margin is not the log-likelihood.** With only yes/no in play,
+
+    s        = log p(yes) − log p(no)          ← what we optimise
+    p(yes|θ) = sigmoid(s)
+    log p(yes|θ) = log sigmoid(s) = −log(1 + e^(−s))    ← the actual log-likelihood
+
+Both are monotone in `s`, so they share an argmax. **Their gradients do not match**, and for
+a gradient method that is what counts:
+
+    d/ds  of  s                = 1.000  — constant, never saturates
+    d/ds  of  log sigmoid(s)   = 1 − sigmoid(s)
+                                 0.500 at s=0, 0.119 at s=+2, 0.047 at s=+3, 0.007 at s=+5
+
+Measured over the 72 scores in the joint fit: median `s` = +1.79, so median `p(yes)` =
+**0.857**, and **39% of evaluations sat above p(yes) = 0.90**. At the median the true
+log-likelihood gradient is 0.143 — **7× smaller than the quantity we were ascending**, and
+falling fast with `s`.
+
+This is a live candidate for the coin-flip gradients. In the saturated region the
+likelihood is nearly flat — the judge already says yes to everything we show it — so
+differences in `s` there are dominated by whatever else moves the logit (appearance, motion
+magnitude) rather than by physics. We were climbing a surface the proper objective says is
+already level.
+
+Two consequences:
+1. **Optimise `log sigmoid(s)`, not `s`.** It saturates where the judge is confident, which
+   is the correct behaviour and stops the optimiser chasing noise in a region it has already
+   satisfied.
+2. **Keep the fit out of saturation.** If every candidate scores p(yes) > 0.9, the
+   experiment carries almost no information. Candidates should straddle the decision
+   boundary — which argues for deliberately including implausible θ, the way the authored
+   violations did, so the judge is not always answering yes.
 
 ## What we measured (not assumed)
 
