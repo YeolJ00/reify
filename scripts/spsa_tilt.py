@@ -46,11 +46,17 @@ X0 = np.log10(0.40)                      # same start for every object
 BOUNDS = (np.log10(0.08), np.log10(1.20))
 N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 8, 0.09, 0.16, 0.602, 0.101
 
-PROMPT = ("Is the way this object slides consistent with what it is made of? Consider its "
-          "weight, hardness and how much grip such a material should have on a wooden "
-          "surface. Assume the normal laws of physics.\nYour answer should be based on the "
-          "events in the video and ignore the quality of the simulation engine.\n"
-          "(A) Consistent\n(B) Inconsistent")
+# The object is NAMED now. Clips keep the whole scene -- table edge, incline, neighbours --
+# because a tight crop deleted the very slope the sliding is judged against, so the question
+# has to say which object it means. Naming leans on the capability measured reliable in this
+# model (object and material identification, 4/4 open-ended) rather than on pixel isolation.
+NOUN = {"book": "hardcover book set", "brass_pot": "brass pot",
+        "wooden_bowl": "wooden bowl"}
+PROMPT = ("Look only at the {noun} in this video. The surface it rests on is tilting. Is the "
+          "way it slides consistent with what it is made of? Consider its weight, hardness "
+          "and how much grip such a material should have on wood. Assume the normal laws of "
+          "physics.\nYour answer should be based on the events in the video and ignore the "
+          "quality of the simulation engine.\n(A) Consistent\n(B) Inconsistent")
 
 
 def pick_gpu():
@@ -107,7 +113,8 @@ def build_and_score(judge, mus_by_scene):
         if not p.exists():
             continue
         out.setdefault(rec["scene"], {})[rec["object"]] = {
-            "s": float(judge.score(p, PROMPT)), "mu": rec["mu"],
+            "s": float(judge.score(p, PROMPT.format(noun=NOUN[rec["object"]]))),
+            "mu": rec["mu"],
             "onset_deg": rec.get("onset_deg"), "M": rec.get("motion_in_crop")}
     return out
 
