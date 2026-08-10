@@ -40,8 +40,21 @@ BLENDER = "/home/nas5/jaeseonglee/blender-4.2.0-linux-x64/blender"
 RUN = REPO / "outputs" / "judge" / "spsa_tilt"
 MODEL = "nvidia/Cosmos3-Super"
 
-# sliders only, well separated so crops do not overlap (measured IoU 0.08 at 0.60 m apart)
-OBJECTS = {"book": -0.30, "brass_pot": 0.30, "wooden_bowl": 0.00}
+# SCALED: every staged asset that has a tilt response. Rollers are excluded because a
+# sphere has no slip threshold at all (baseball corr +0.32 in mu against +0.92 for a
+# flat-based body) -- they need the drop probe, not this one.
+#
+# Objects are placed at 0.30 m spacing, which measured IoU 0.08 between adjacent crops, and
+# the table only holds about three at that spacing. So the set is split into GROUPS: each
+# SPSA iteration renders every group at mu_plus and again at mu_minus, i.e. 2 renders per
+# group per iteration, and every object still gets its own (y+ - y-) from the same object.
+# That is what makes this scale -- adding objects costs renders in proportion to GROUPS,
+# not to objects.
+GROUPS = [
+    {"book": -0.30, "brass_pot": 0.30, "wooden_bowl": 0.00},
+    {"ceramic_vase": -0.30, "rubber_duck": 0.30},
+]
+OBJECTS = {o: y for g in GROUPS for o, y in g.items()}
 X0 = np.log10(0.40)                      # same start for every object
 BOUNDS = (np.log10(0.08), np.log10(1.20))
 N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 8, 0.09, 0.16, 0.602, 0.101
@@ -51,7 +64,8 @@ N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 8, 0.09, 0.16, 0.602, 0.101
 # has to say which object it means. Naming leans on the capability measured reliable in this
 # model (object and material identification, 4/4 open-ended) rather than on pixel isolation.
 NOUN = {"book": "hardcover book set", "brass_pot": "brass pot",
-        "wooden_bowl": "wooden bowl"}
+        "wooden_bowl": "wooden bowl", "ceramic_vase": "white ceramic vase",
+        "rubber_duck": "yellow rubber duck"}
 PROMPT = ("Look only at the {noun} in this video. The surface it rests on is tilting. Is the "
           "way it slides consistent with what it is made of? Consider its weight, hardness "
           "and how much grip such a material should have on wood. Assume the normal laws of "
@@ -82,8 +96,14 @@ def build_and_score(judge, mus_by_scene):
 
     One sim call and one Blender call per scene, then per-object crops.
     """
-    spec = {s: {o: {"mu": float(m), "y": OBJECTS[o]} for o, m in d.items()}
-            for s, d in mus_by_scene.items()}
+    # one scene per (perturbation, group); objects that share a scene must not overlap
+    spec = {}
+    for sname, d in mus_by_scene.items():
+        for gi, g in enumerate(GROUPS):
+            sub = {o: m for o, m in d.items() if o in g}
+            if sub:
+                spec[f"{sname}_g{gi}"] = {o: {"mu": float(m), "y": g[o]}
+                                          for o, m in sub.items()}
     (RUN / "spsa_in.json").write_text(json.dumps(spec))
     gpu = pick_gpu()
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": gpu}
@@ -112,7 +132,8 @@ def build_and_score(judge, mus_by_scene):
         p = RUN / rec["clip"]
         if not p.exists():
             continue
-        out.setdefault(rec["scene"], {})[rec["object"]] = {
+        base = rec["scene"].rsplit("_g", 1)[0]      # collapse groups back to plus/minus
+        out.setdefault(base, {})[rec["object"]] = {
             "s": float(judge.score(p, PROMPT.format(noun=NOUN[rec["object"]]))),
             "mu": rec["mu"],
             "onset_deg": rec.get("onset_deg"), "M": rec.get("motion_in_crop")}
