@@ -1,0 +1,22 @@
+{
+  "book": {
+    "mu": 0.596,
+    "reads": "centre of mass"
+  },
+  "brass_pot": {
+    "mu": 0.08,
+    "reads": "friction"
+  },
+  "wooden_bowl": {
+    "mu": 0.148,
+    "reads": "friction"
+  },
+  "ceramic_vase": {
+    "mu": 0.154,
+    "reads": "centre of mass"
+  },
+  "rubber_duck": {
+    "mu": 0.118,
+    "reads": "centre of mass"
+  }
+}
