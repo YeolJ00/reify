@@ -31,6 +31,21 @@ QUESTION = (
 
 SYSTEM = "Answer with a single letter, A or B. Do not explain."
 
+# Object-named variant, for full-frame clips of a multi-object scene. Naming is how a
+# per-object question is disambiguated now that clips are not cropped: the scene shows
+# every object, and the prompt says which one to judge. This relies on the model's object
+# identification, which is the one capability measured reliable here (4/4 on open-ended
+# questioning) as against its motion perception, which is not.
+NAMED_QUESTION = (
+    "Look only at the {noun} in this video. Is the way it moves consistent with what it is "
+    "made of? Consider its weight, hardness, and how much grip such a material should have. "
+    "Assume the normal laws of physics.\n"
+    "Your answer should be based on the events in the video and ignore the quality of the "
+    "simulation engine.\n"
+    "(A) Consistent\n"
+    "(B) Inconsistent"
+)
+
 
 class PlausibilityJudge:
     def __init__(self, model_id=MODEL, device="cuda:0", n_frames=None, load_in_8bit=False):

@@ -1,4 +1,16 @@
-"""Per-object crops from one rendered scene.
+"""Per-object framing from one rendered scene.
+
+DEFAULT IS THE FULL FRAME, with the object NAMED in the prompt. Tight crops were the first
+design -- render once, crop N times, keep neighbours out -- but two things argue against
+them for this probe. The tilt itself is the thing the motion is being judged against, and a
+tight box deletes the table edge and the incline that make a slip angle readable. And the
+one capability measured reliable in this model is naming the object: open-ended questioning
+gave "a rubber duck, made of rubber" and "a large, metallic pot with a lid" 4/4 correct.
+Disambiguating by words is therefore cheaper and safer than disambiguating by pixels.
+
+Cropping is kept for cases where an object is small in frame or the scene is crowded --
+crop_box() still works and PAD_CONTEXT gives a wide, context-preserving box rather than a
+tight one.
 
 The economics that motivate this: a Cycles render costs ~35 s and a judge forward ~4 s, so
 rendering one clip per object is dominated by rendering. But a scene containing N objects
@@ -20,7 +32,10 @@ def project_points(cam, pts):
     return np.asarray(uv, float), np.asarray(ok, bool)
 
 
-def crop_box(cam, pts_over_time, width, height, pad=0.12, min_px=72):
+PAD_TIGHT, PAD_CONTEXT = 0.12, 1.20
+
+
+def crop_box(cam, pts_over_time, width, height, pad=PAD_CONTEXT, min_px=72):
     """Static box covering the object for the whole clip.
 
     pts_over_time: (T, K, 3) world points (sphere-cover centres are ideal).
