@@ -33,9 +33,16 @@ def project_points(cam, pts):
 
 
 PAD_TIGHT, PAD_CONTEXT = 0.12, 1.20
+# A crop may never be smaller than this fraction of the frame in either dimension. An
+# absolute pixel floor (72 px) let a barely-moving object collapse to a 74x74 thumbnail --
+# 2% of the frame -- which is a texture patch, not a scene: the table, the incline and the
+# object's relationship to them are all gone. Framed as a fraction, the crop stays a
+# recognisable view of the scene no matter how little the object moves.
+MIN_FRAC = 0.60
 
 
-def crop_box(cam, pts_over_time, width, height, pad=PAD_CONTEXT, min_px=72):
+def crop_box(cam, pts_over_time, width, height, pad=PAD_CONTEXT, min_px=72,
+             min_frac=MIN_FRAC):
     """Static box covering the object for the whole clip.
 
     pts_over_time: (T, K, 3) world points (sphere-cover centres are ideal).
@@ -53,12 +60,22 @@ def crop_box(cam, pts_over_time, width, height, pad=PAD_CONTEXT, min_px=72):
     w, h = x1 - x0, y1 - y0
     x0 -= pad * w; x1 += pad * w
     y0 -= pad * h; y1 += pad * h
-    # enforce a floor so a small object does not become a texture patch
+    # floor the size: never below min_px absolute, never below min_frac of the frame
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    if x1 - x0 < min_px:
-        x0, x1 = cx - min_px / 2, cx + min_px / 2
-    if y1 - y0 < min_px:
-        y0, y1 = cy - min_px / 2, cy + min_px / 2
+    fw, fh = max(min_px, min_frac * width), max(min_px, min_frac * height)
+    if x1 - x0 < fw:
+        x0, x1 = cx - fw / 2, cx + fw / 2
+    if y1 - y0 < fh:
+        y0, y1 = cy - fh / 2, cy + fh / 2
+    # a floored box can run off the edge; slide it back inside rather than clipping it
+    if x0 < 0:
+        x1 -= x0; x0 = 0
+    if y0 < 0:
+        y1 -= y0; y0 = 0
+    if x1 > width:
+        x0 -= (x1 - width); x1 = width
+    if y1 > height:
+        y0 -= (y1 - height); y1 = height
     # even dimensions for the encoder, clamped to frame
     x0 = int(max(0, np.floor(x0))); y0 = int(max(0, np.floor(y0)))
     x1 = int(min(width, np.ceil(x1))); y1 = int(min(height, np.ceil(y1)))

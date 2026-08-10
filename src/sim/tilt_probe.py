@@ -103,11 +103,14 @@ def slide_matched_angle(run_at_angle, target_m, angles_rad, tol=0.15):
 # moved at mu=0.855, collapsed to the 72 px crop floor, and gave the worst SPSA gradient
 # consistency of the three objects (3/8). Its earlier +0.918 slip-angle correlation was
 # measured on a fixed shallow incline where it had not yet toppled.
+# classify() says WHICH OBSERVABLE an object gives on the ramp, NOT which objects to keep.
+# Every object stays in the probe set: a toppler is a centre-of-mass measurement on the same
+# render, and discarding it throws away data for the sake of a tidier friction fit. The book
+# topples, which is worth knowing when reading its clip -- it is not a reason to drop it.
 SLIDE_RATIO_MIN, TOPPLE_RATIO_MAX = 1.4, 0.9
-SLIDES = ("wooden_bowl",)              # clean sliders in the staged scene
-MARGINAL = ("brass_pot",)              # usable, but verify it has not toppled
-TOPPLES = ("book", "ceramic_vase", "rubber_duck")   # these read CoM, not friction
-ROLLS = ("baseball", "apple")          # no slip threshold at all
+READS_FRICTION = ("wooden_bowl", "brass_pot")           # slip angle
+READS_COM = ("book", "ceramic_vase", "rubber_duck")     # topple angle and direction
+ROLLS = ("baseball", "apple")                           # no slip threshold at all
 
 
 def classify(extents_cm):
