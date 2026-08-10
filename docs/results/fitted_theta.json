@@ -1,0 +1,11 @@
+{
+  "book": {
+    "friction": 0.741
+  },
+  "brass_pot": {
+    "friction": 0.093
+  },
+  "wooden_bowl": {
+    "friction": 0.216
+  }
+}
