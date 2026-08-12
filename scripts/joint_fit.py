@@ -51,9 +51,24 @@ MODEL = "nvidia/Cosmos3-Super"
 # term -- measured loudest (|dy| 1.72) and least consistent (3/6) -- push mu, which it knows
 # nothing about. Masked updates confine each probe's gradient to its own coordinates.
 #   theta index:  0 = log10 mu, 1 = log10 cd, 2 = log10 rho
-PROBE_MASK = {"tilt": np.array([1.0, 0.0, 0.0]),      # slip angle -> friction
-              "drop": np.array([0.0, 1.0, 0.0]),      # bounce -> contact damping
-              "collide": np.array([0.0, 0.0, 1.0])}   # momentum transfer -> density
+PROBE_MASK = {"tilt":    np.array([1.0, 0.0, 0.0]),   # slip angle       -> friction
+              "drop":    np.array([0.0, 1.0, 0.0]),   # bounce           -> contact damping
+              "collide": np.array([0.0, 0.0, 1.0]),   # momentum         -> density
+              "spin":    np.array([1.0, 0.0, 0.0]),   # spin-down rate   -> friction
+              "stack":   np.array([1.0, 0.0, 1.0]),   # topple angle     -> friction + mass
+              "shove":   np.array([1.0, 0.0, 0.0])}   # stopping         -> friction
+
+# WEIGHTS, measured rather than assumed. A probe that returns the same answer for every
+# theta carries no information however sign-consistent it is. Fisher information for a
+# yes/no judge is p(1-p) x (ds/dtheta)^2, so saturation and insensitivity both cost.
+# Estimated from the yes-region sample (docs/results/probe_weights.json):
+#     tilt 0.072   drop 0.430   collide 0.497
+# Tilt was the MOST sign-consistent probe (5/6) and is the LEAST informative, because its
+# mean p(yes) is 0.948 so p(1-p) = 0.047. Consistency and informativeness are different
+# properties and equal weighting confused them. New probes start at the mean until measured.
+_M = 0.33
+PROBE_W = {"tilt": 0.072, "drop": 0.430, "collide": 0.497,
+           "spin": _M, "stack": _M, "shove": _M}
 
 OBJECTS = {"brass_pot": 0.30, "wooden_bowl": -0.30}
 NOUN = {"brass_pot": "brass pot", "wooden_bowl": "wooden bowl"}
@@ -64,6 +79,13 @@ BOUNDS = np.array([[-0.90, 0.08], [3.00, 4.10], [2.20, 3.95]])
 N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 6, 0.40, 0.14, 0.602, 0.101
 
 PROMPTS = {
+    "spin": ("Look only at the {noun}. It has been spun on the spot. Is the way it keeps "
+             "turning and slows to a stop consistent with what it is made of?"),
+    "stack": ("Look only at the {noun}. Another object is balanced on top of it and the "
+              "surface is tilting. Is the way the stack leans and gives way consistent "
+              "with their weights and materials?"),
+    "shove": ("Look only at the {noun}. It has been pushed across the table. Is the way it "
+              "slides and comes to rest consistent with what it is made of?"),
     "tilt": ("Look only at the {noun}. The surface it rests on is tilting. Is the way it "
              "slides consistent with what it is made of? Consider its weight, hardness and "
              "grip on wood."),
@@ -188,7 +210,7 @@ def main():
             g = np.zeros(3)
             for pr in probes:
                 d = loglik(sp[pr]) - loglik(sm[pr])
-                g += PROBE_MASK[pr] * d / (2.0 * c_k * delta[o])
+                g += PROBE_W.get(pr, _M) * PROBE_MASK[pr] * d / (2.0 * c_k * delta[o])
             yp, ym = sum(sp[p] for p in probes), sum(sm[p] for p in probes)
             x[o] = np.clip(x[o] + a_k * g, BOUNDS[:, 0], BOUNDS[:, 1])
             rec["objects"][o] = {"theta": to_theta(x[o]),

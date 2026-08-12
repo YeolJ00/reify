@@ -27,9 +27,16 @@ from scripts.multiprobe_build import GZ, PIVOT, prep, ry  # noqa: E402
 from src.sim.tilt_probe import tilt_gravity  # noqa: E402
 
 SRC = REPO / "outputs" / "scene" / "expand"
+# Six experiments. Weight comes from measured informativeness, not from intuition -- the
+# tilt probe is the most sign-consistent and the LEAST informative, because it is saturated
+# (mean p(yes) 0.948, so p(1-p) = 0.047). Those are different properties.
+PROBES = ("tilt", "drop", "collide", "spin", "stack", "shove")
 TILT_A, TILT_B, TILT_N = 4.0, 34.0, 44
 DROP_LIFT, DROP_N = 0.22, 34
 COLL_V, COLL_N = 1.5, 30          # launch speed m/s, frames
+SPIN_W, SPIN_N = 9.0, 34          # initial spin rad/s, frames
+STACK_N = 44                      # stack on the ramp, same schedule as tilt
+SHOVE_V, SHOVE_N = 1.1, 30        # flat-ground shove, frames
 # One partner PER SUBJECT. Both subjects share a collide scene, and a Blender scene holds
 # one object of each name -- keying the partner by a single name meant the second collision
 # silently overwrote the first and only one partner appeared in the render.
@@ -66,7 +73,7 @@ def do_sim(run):
             return cache[o]
 
         for tag, objs in spec.items():          # tag = "plus" / "minus"
-            for probe in ("tilt", "drop", "collide"):
+            for probe in PROBES:
                 key = f"{tag}_{probe}"
                 sob, smet = {}, {}
                 for o, th in objs.items():
@@ -108,6 +115,71 @@ def do_sim(run):
                             continue
                         sob[o] = _poses(A[:, 0], B[:, 0], Rz, vm)
                         smet[o] = {"world_pts": A[:, 0].tolist()}
+                    elif probe == "spin":
+                        # spun on the spot. How long it keeps turning reads friction, and
+                        # the decay is a RATE rather than a distance, so it is not a
+                        # straight motion-magnitude cue.
+                        c = [PIVOT[0], y, GZ + rad - zmin + 0.002]
+                        s = ProbeScene([name], [c], [[0.0, 0.0, 0.0]],
+                                       ang0=[[0.0, 0.0, SPIN_W]], densities=(rho,),
+                                       ground_z=GZ, dt=1.0 / (FPS * SUBSTEPS),
+                                       n_steps=SPIN_N * SUBSTEPS, k=K_CONTACT, cd=cd,
+                                       mu=mu, mesh_scale=[sc], pitch=PITCH)
+                        s.rollout()
+                        A = s.positions(SUBSTEPS)[:SPIN_N]
+                        B = s.rotations(SUBSTEPS)[:SPIN_N]
+                        if not np.isfinite(A).all():
+                            continue
+                        sob[o] = _poses(A[:, 0], B[:, 0], Rz, vm)
+                        smet[o] = {"world_pts": A[:, 0].tolist()}
+                    elif probe == "stack":
+                        # a partner balanced on top, then the ramp. The stack falls at ONE
+                        # angle -- a binary outcome, which is where a yes/no judge carries
+                        # the most information, and it reads CoM and friction jointly.
+                        partner = PARTNERS.get(o, "baseball")
+                        pn, psc, pvm, pRz, prad, pzmin = P(partner)
+                        base_z = GZ + rad - zmin + 0.002
+                        top_z = base_z + (zmin + rad) * 0.0 + 0.16
+                        pos = [[PIVOT[0] - 0.05, y, base_z], [PIVOT[0] - 0.05, y, top_z]]
+                        vel = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+                        Ps, Qs, P2, Q2 = [], [], [], []
+                        for f in range(STACK_N):
+                            s = ProbeScene([name, pn], pos, vel, densities=(rho, 650.0),
+                                           ground_z=GZ, dt=1.0 / (FPS * SUBSTEPS),
+                                           n_steps=SUBSTEPS, k=K_CONTACT, cd=cd, mu=mu,
+                                           mesh_scale=[sc, psc], pitch=PITCH,
+                                           gravity=tilt_gravity(np.deg2rad(ramp[f])))
+                            s.rollout()
+                            A, B = s.positions(SUBSTEPS), s.rotations(SUBSTEPS)
+                            if not np.isfinite(A).all():
+                                break
+                            Ps.append(A[-1, 0].copy()); Qs.append(B[-1, 0].copy())
+                            P2.append(A[-1, 1].copy()); Q2.append(B[-1, 1].copy())
+                            vel = [[float(v) for v in (A[-1, i] - A[0, i]) * FPS]
+                                   for i in (0, 1)]
+                            pos = [[float(v) for v in A[-1, i]] for i in (0, 1)]
+                        if len(Ps) < STACK_N:
+                            continue
+                        sob[o] = _poses(np.array(Ps), np.array(Qs), Rz, vm, ramp=ramp)
+                        sob[partner] = _poses(np.array(P2), np.array(Q2), pRz, pvm,
+                                              ramp=ramp)
+                        smet[o] = {"world_pts": np.array(Ps).tolist(), "partner": partner}
+                    elif probe == "shove":
+                        # pushed across a level surface and left to stop. Stopping is a
+                        # threshold event even though the distance is a magnitude.
+                        c = [PIVOT[0] - 0.22, y, GZ + rad - zmin + 0.002]
+                        s = ProbeScene([name], [c], [[SHOVE_V, 0.0, 0.0]],
+                                       densities=(rho,), ground_z=GZ,
+                                       dt=1.0 / (FPS * SUBSTEPS),
+                                       n_steps=SHOVE_N * SUBSTEPS, k=K_CONTACT, cd=cd,
+                                       mu=mu, mesh_scale=[sc], pitch=PITCH)
+                        s.rollout()
+                        A = s.positions(SUBSTEPS)[:SHOVE_N]
+                        B = s.rotations(SUBSTEPS)[:SHOVE_N]
+                        if not np.isfinite(A).all():
+                            continue
+                        sob[o] = _poses(A[:, 0], B[:, 0], Rz, vm)
+                        smet[o] = {"world_pts": A[:, 0].tolist()}
                     else:                        # collide
                         partner = PARTNERS.get(o, "baseball")
                         pn, psc, pvm, pRz, prad, pzmin = P(partner)
@@ -130,7 +202,8 @@ def do_sim(run):
                                    "partner": partner,
                                    "partner_pts": A[:, 1].tolist()}
                 if sob:
-                    scenes[key] = {"tilt_deg": ramp.tolist() if probe == "tilt" else 0.0,
+                    scenes[key] = {"tilt_deg": ramp.tolist()
+                                   if probe in ("tilt", "stack") else 0.0,
                                    "objects": sob}
                     meta[key] = smet
     (run / "scene_poses.json").write_text(json.dumps(scenes))
