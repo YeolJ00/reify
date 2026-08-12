@@ -46,12 +46,22 @@ RUN = REPO / "outputs" / "judge" / "joint"
 KEEP = RUN / "iters"
 MODEL = "nvidia/Cosmos3-Super"
 
+# WHICH PARAMETER EACH PROBE CAN SEE. A probe should only move what it has information
+# about. Summing all three probes into one scalar and updating all of theta let the collide
+# term -- measured loudest (|dy| 1.72) and least consistent (3/6) -- push mu, which it knows
+# nothing about. Masked updates confine each probe's gradient to its own coordinates.
+#   theta index:  0 = log10 mu, 1 = log10 cd, 2 = log10 rho
+PROBE_MASK = {"tilt": np.array([1.0, 0.0, 0.0]),      # slip angle -> friction
+              "drop": np.array([0.0, 1.0, 0.0]),      # bounce -> contact damping
+              "collide": np.array([0.0, 0.0, 1.0])}   # momentum transfer -> density
+
 OBJECTS = {"brass_pot": 0.30, "wooden_bowl": -0.30}
 NOUN = {"brass_pot": "brass pot", "wooden_bowl": "wooden bowl"}
 # theta = (log10 mu, log10 cd, log10 rho)
 X0 = np.array([np.log10(0.40), np.log10(2500.0), np.log10(1200.0)])
 BOUNDS = np.array([[-0.90, 0.08], [3.00, 4.10], [2.20, 3.95]])
-N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 6, 0.06, 0.14, 0.602, 0.101
+# a_k raised: the log-likelihood gradient is ~7x smaller than the raw margin's
+N_ITER, A_GAIN, C_GAIN, ALPHA, GAMMA = 6, 0.40, 0.14, 0.602, 0.101
 
 PROMPTS = {
     "tilt": ("Look only at the {noun}. The surface it rests on is tilting. Is the way it "
@@ -65,6 +75,19 @@ PROMPTS = {
 }
 TAIL = ("\nAssume the normal laws of physics. Base your answer on the events in the video "
         "and ignore the quality of the simulation engine.\n(A) Consistent\n(B) Inconsistent")
+
+
+def loglik(s):
+    """log p(yes | theta) = log sigmoid(s), NOT the raw logit margin s.
+
+    Both are monotone in s so they share an argmax, but their gradients differ and for a
+    gradient method that is what counts. d/ds of s is 1 always; d/ds of log sigmoid(s) is
+    1 - sigmoid(s), which is 0.12 at s=+2 and 0.007 at s=+5. Measured over the previous
+    joint fit, median s was +1.79 (p(yes)=0.86) with 39% above p=0.90 -- deep in saturation,
+    where the true likelihood is flat and differences in s are carried by appearance and
+    motion magnitude rather than physics.
+    """
+    return -np.log1p(np.exp(-np.clip(s, -30, 30)))
 
 
 def to_theta(x):
@@ -128,8 +151,13 @@ def evaluate(judge, xs_by_tag, it):
             continue
         q = PROMPTS[probe].format(noun=NOUN[o]) + TAIL
         s = float(judge.score(p, q))
-        scores.setdefault(tag, {}).setdefault(o, {})[probe] = s
+        # one simulation, several viewpoints: average so a theta must read plausible from
+        # every angle, not just the one the camera happened to be at
+        scores.setdefault(tag, {}).setdefault(o, {}).setdefault(probe, []).append(s)
         shutil.copy(p, dst / rec["clip"])     # keep every iteration's clips
+    for tag in scores:
+        for o in scores[tag]:
+            scores[tag][o] = {pr: float(np.mean(v)) for pr, v in scores[tag][o].items()}
     return scores
 
 
@@ -156,8 +184,12 @@ def main():
             probes = sorted(set(sp) & set(sm))
             if not probes:
                 continue
+            # masked, per-probe, on the LOG-LIKELIHOOD rather than the raw margin
+            g = np.zeros(3)
+            for pr in probes:
+                d = loglik(sp[pr]) - loglik(sm[pr])
+                g += PROBE_MASK[pr] * d / (2.0 * c_k * delta[o])
             yp, ym = sum(sp[p] for p in probes), sum(sm[p] for p in probes)
-            g = (yp - ym) / (2.0 * c_k * delta[o])
             x[o] = np.clip(x[o] + a_k * g, BOUNDS[:, 0], BOUNDS[:, 1])
             rec["objects"][o] = {"theta": to_theta(x[o]),
                                  "theta_plus": to_theta(xp[o]),

@@ -19,10 +19,16 @@ Run: LAB=<dir> <blender> --background --python scripts/blender_render_scene.py
 import json
 import math
 import os
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path("/home/nas5/jooyeolyun/repos/simulation-assestization")
 
 import bpy
 import mathutils
+
+sys.path.insert(0, str(REPO_ROOT))
+from src.render.views import VIEWS  # noqa: E402
 
 REPO = Path("/home/nas5/jooyeolyun/repos/simulation-assestization")
 SCENE = REPO / "outputs" / "scene"
@@ -99,13 +105,20 @@ def main():
         b.rotation_euler = (b.rotation_euler[0], b.rotation_euler[1], o["rot_z"])
         b.location = tuple(o["pos"]); objs[name] = b; home[name] = tuple(o["pos"])
 
-    cam_d = bpy.data.cameras.new("c"); cam = bpy.data.objects.new("c", cam_d)
-    bpy.context.collection.objects.link(cam)
-    cam.location = mathutils.Vector(CAM["eye"])
-    look = mathutils.Vector(CAM["target"]) - cam.location
-    cam.rotation_euler = look.to_track_quat("-Z", "Y").to_euler()
-    cam_d.sensor_fit = "HORIZONTAL"; cam_d.angle = math.radians(CAM["fov_deg"])
-    bpy.context.scene.camera = cam
+    cams = {}
+    for vn, vc in VIEWS.items():
+        cd_ = bpy.data.cameras.new(f"c{vn}")
+        co = bpy.data.objects.new(f"c{vn}", cd_)
+        bpy.context.collection.objects.link(co)
+        co.location = mathutils.Vector(vc["eye"])
+        lk = mathutils.Vector(vc["target"]) - co.location
+        co.rotation_euler = lk.to_track_quat("-Z", "Y").to_euler()
+        cd_.sensor_fit = "HORIZONTAL"; cd_.angle = math.radians(vc["fov_deg"])
+        cams[vn] = co
+    only = os.environ.get("VIEWS")
+    if only:
+        cams = {k: v for k, v in cams.items() if k in only.split(",")}
+    bpy.context.scene.camera = cams[list(cams)[0]]
 
     sc = bpy.context.scene
     sc.render.engine = os.environ.get("ENGINE", "CYCLES")
@@ -123,12 +136,14 @@ def main():
     sc.render.image_settings.file_format = "PNG"
 
     for key, info in poses.items():
-        outdir = LAB / f"sim_{key}"
+      acting = info["objects"]
+      n_frames = min(len(v) for v in acting.values())
+      for vn, camobj in cams.items():
+        bpy.context.scene.camera = camobj
+        outdir = LAB / f"sim_{key}@{vn}"
         outdir.mkdir(parents=True, exist_ok=True)
-        acting = info["objects"]
-        n_frames = min(len(v) for v in acting.values())
         if len(list(outdir.glob("f*.png"))) == n_frames:
-            print(f"  skip {key}: already complete"); continue
+            print(f"  skip {key}@{vn}: already complete"); continue
 
         # tilt the table about Y through a pivot on its surface; +x goes down.
         # tilt_deg may be a scalar (fixed incline) or a per-frame list (ramp).
@@ -167,8 +182,7 @@ def main():
             o.rotation_euler = (o.rotation_euler[0], o.rotation_euler[1],
                                 scene_cfg["objects"][n]["rot_z"])
             o.location = home[n]
-        print(f"  rendered {key}: {n_frames} frames, {len(acting)} objects "
-              f"-> {outdir.name}")
+        print(f"  rendered {key}@{vn}: {n_frames} frames, {len(acting)} objects")
 
 
 main()

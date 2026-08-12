@@ -143,14 +143,21 @@ def do_crop(run):
     import imageio.v2 as imageio
     from src.render.camera import Camera
     from src.render.crop import crop_box, crop_clip
-    cam = Camera(json.loads((run / "lab.json").read_text())["camera"])
     meta = json.loads((run / "scene_meta.json").read_text())
     scenes = json.loads((run / "scene_poses.json").read_text())
     out = []
+    views = sorted({d.name.split("@")[1] for d in run.glob("sim_*@*") if d.is_dir()})
+    cams = {}
+    lab = json.loads((run / "lab.json").read_text())
+    from src.render.views import VIEWS as VDEF   # shared, bpy-free
+    for v in views:
+        cams[v] = Camera(VDEF[v])
     for key, sc in scenes.items():
-        ps = sorted((run / f"sim_{key}").glob("f*.png"))
+      for v in views:
+        ps = sorted((run / f"sim_{key}@{v}").glob("f*.png"))
         if not ps:
             continue
+        cam = cams[v]
         frames = np.stack([imageio.imread(p)[..., :3] for p in ps])
         td = sc["tilt_deg"]
         for o, m in meta.get(key, {}).items():
@@ -162,13 +169,13 @@ def do_crop(run):
             box = crop_box(cam, pts, 544, 448)
             if box is None:
                 continue
-            dst = run / f"{key}__{o}.mp4"
+            dst = run / f"{key}__{o}@{v}.mp4"
             w = imageio.get_writer(str(dst), fps=int(FPS), codec="libx264", quality=8,
                                    macro_block_size=1)
             for f in crop_clip(frames, box):
                 w.append_data(f)
             w.close()
-            out.append({"scene": key, "tag": key.split("_")[0],
+            out.append({"scene": key, "tag": key.split("_")[0], "view": v,
                         "probe": key.split("_", 1)[1], "object": o, "clip": dst.name})
     (run / "crops.json").write_text(json.dumps(out, indent=2))
     print(f"cropped {len(out)} clips")
