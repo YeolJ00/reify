@@ -62,3 +62,35 @@ press-release (no soft-body solver exposed in this Newton build).
 
 Next concrete step: add the collide scene and fit `(mu, cd, mass)` jointly over
 tilt + drop + collide, which is the smallest configuration that breaks the mass degeneracy.
+
+## Parameter coverage — what we probe and what we do not
+
+| parameter | probed by | status |
+|---|---|---|
+| friction `mu` | tilt (slip angle), spin (spin-down rate), shove (stopping) | 3 probes |
+| density → mass | collide, collide_heavy, collide_slow, stack | 4 probes, all momentum-based |
+| centre of mass | tilt (topple angle and direction), stack | 2 probes |
+| restitution via `cd` | drop | 1 probe |
+| **Young's modulus — squish** | — | **no soft-body solver exposed** (`SolverVBD`/`Style3D` are cloth, `ImplicitMPM` nearest) |
+| cloth bend / shear / stretch | — | buildable, `FlagSim` exists and is unwired |
+| rolling resistance | — | distinct from sliding friction, unmodelled |
+| plastic yield, fracture | — | unmodelled |
+
+**Why mass needs several probes rather than several kinds of probe.** Mass cancels out of
+almost every observable available to us:
+
+    spin-down    torque ~ mu*m*g, inertia ~ m*r^2  ->  omega-dot ~ mu*g/r   m cancels
+    slip angle   tan(theta) = mu                                            m absent
+    topple       geometry of CoM against base of support                     m absent
+    free fall    a = g                                                       m absent
+    drop bounce  depends on cd/m                                            m only as a ratio
+
+Momentum transfer is the only observable that sees mass on its own, so emphasis means more
+collisions: a light partner, a heavy partner, and a slow impact. The slow variant exists
+because at 1.5 m/s the transfer finished in fewer frames than the judge resolves, which is
+the leading suspect for `rho` returning 188 kg/m³ for brass against a true ~8500.
+
+A balance or seesaw would read mass directly and is the cleanest possible probe for it, but
+it needs a pivot — a joint or a static body — and `ProbeScene` integrates free rigid bodies
+with penalty contact only. A penalty spring pinning a plank's centre would approximate one
+in a few lines and has not been tried.

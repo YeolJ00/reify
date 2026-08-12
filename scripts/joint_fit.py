@@ -56,7 +56,9 @@ PROBE_MASK = {"tilt":    np.array([1.0, 0.0, 0.0]),   # slip angle       -> fric
               "collide": np.array([0.0, 0.0, 1.0]),   # momentum         -> density
               "spin":    np.array([1.0, 0.0, 0.0]),   # spin-down rate   -> friction
               "stack":   np.array([1.0, 0.0, 1.0]),   # topple angle     -> friction + mass
-              "shove":   np.array([1.0, 0.0, 0.0])}   # stopping         -> friction
+              "shove":   np.array([1.0, 0.0, 0.0]),   # stopping         -> friction
+              "collide_heavy": np.array([0.0, 0.0, 1.0]),
+              "collide_slow":  np.array([0.0, 0.0, 1.0])}
 
 # WEIGHTS, measured rather than assumed. A probe that returns the same answer for every
 # theta carries no information however sign-consistent it is. Fisher information for a
@@ -68,6 +70,7 @@ PROBE_MASK = {"tilt":    np.array([1.0, 0.0, 0.0]),   # slip angle       -> fric
 # properties and equal weighting confused them. New probes start at the mean until measured.
 _M = 0.33
 PROBE_W = {"tilt": 0.072, "drop": 0.430, "collide": 0.497,
+           "collide_heavy": 0.497, "collide_slow": 0.497,   # same family, measured value
            "spin": _M, "stack": _M, "shove": _M}
 
 OBJECTS = {"brass_pot": 0.30, "wooden_bowl": -0.30}
@@ -94,6 +97,11 @@ PROMPTS = {
     "collide": ("Look only at the {noun}. It slides into another object and hits it. Is "
                 "the way the two push each other consistent with their weights and "
                 "materials?"),
+    "collide_heavy": ("Look only at the {noun}. It slides into a heavier object. Is the way "
+                      "the two push each other consistent with their weights?"),
+    "collide_slow": ("Look only at the {noun}. It drifts slowly into another object and "
+                     "nudges it. Is the way the two push each other consistent with their "
+                     "weights?"),
 }
 TAIL = ("\nAssume the normal laws of physics. Base your answer on the events in the video "
         "and ignore the quality of the simulation engine.\n(A) Consistent\n(B) Inconsistent")

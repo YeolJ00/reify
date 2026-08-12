@@ -30,7 +30,25 @@ SRC = REPO / "outputs" / "scene" / "expand"
 # Six experiments. Weight comes from measured informativeness, not from intuition -- the
 # tilt probe is the most sign-consistent and the LEAST informative, because it is saturated
 # (mean p(yes) 0.948, so p(1-p) = 0.047). Those are different properties.
-PROBES = ("tilt", "drop", "collide", "spin", "stack", "shove")
+PROBES = ("tilt", "drop", "collide", "collide_heavy", "collide_slow",
+          "spin", "stack", "shove")
+
+# MASS IS EMPHASISED BY MORE COLLISIONS, not by more probe types, because mass mostly
+# CANCELS elsewhere:
+#   spin-down   torque ~ mu*m*g, inertia ~ m*r^2, so omega-dot ~ mu*g/r   -- m cancels
+#   slip angle  tan(theta) = mu                                          -- m absent
+#   topple      pure geometry of CoM against base of support             -- m absent
+#   free fall   a = g                                                    -- m absent
+# Momentum transfer is the only observable that sees mass directly, so three collision
+# variants give three independent constraints on it: a light partner, a heavy partner, and
+# a slow impact. A slow impact matters because at 1.5 m/s the transfer was over in fewer
+# frames than the judge resolves -- the suspected reason rho came back at 188 kg/m3 for
+# brass against a true ~8500.
+COLLIDE_VARIANTS = {
+    "collide":       {"partner": None,        "v": 1.5},   # per-object default partner
+    "collide_heavy": {"partner": "brass_pot", "v": 1.5},   # heavy target, larger transfer
+    "collide_slow":  {"partner": None,        "v": 0.55},  # slow, so contact lasts longer
+}
 TILT_A, TILT_B, TILT_N = 4.0, 34.0, 44
 DROP_LIFT, DROP_N = 0.22, 34
 COLL_V, COLL_N = 1.5, 30          # launch speed m/s, frames
@@ -180,13 +198,16 @@ def do_sim(run):
                             continue
                         sob[o] = _poses(A[:, 0], B[:, 0], Rz, vm)
                         smet[o] = {"world_pts": A[:, 0].tolist()}
-                    else:                        # collide
-                        partner = PARTNERS.get(o, "baseball")
+                    else:                        # collide family
+                        cv = COLLIDE_VARIANTS[probe]
+                        partner = cv["partner"] or PARTNERS.get(o, "baseball")
+                        if partner == o:
+                            continue                       # cannot collide with itself
                         pn, psc, pvm, pRz, prad, pzmin = P(partner)
                         c0 = [PIVOT[0] - 0.28, y, GZ + rad - zmin + 0.002]
                         c1 = [PIVOT[0] + 0.10, y, GZ + prad - pzmin + 0.002]
                         s = ProbeScene([name, pn], [c0, c1],
-                                       [[COLL_V, 0.0, 0.0], [0.0, 0.0, 0.0]],
+                                       [[cv["v"], 0.0, 0.0], [0.0, 0.0, 0.0]],
                                        densities=(rho, 650.0), ground_z=GZ,
                                        dt=1.0 / (FPS * SUBSTEPS),
                                        n_steps=COLL_N * SUBSTEPS, k=K_CONTACT, cd=cd,
