@@ -160,7 +160,7 @@ def evaluate(judge, xs_by_tag, it):
     rr = subprocess.run([BLENDER, "--background", "--python",
                          str(REPO / "scripts" / "blender_render_scene.py")],
                         cwd=REPO, capture_output=True, text=True,
-                        env={**env, "LAB": str(RUN)})
+                        env={**env, "LAB": str(RUN), "VIEWS": "a,b"})
     if rr.returncode != 0:
         raise RuntimeError(f"render failed:\n{rr.stdout[-1200:]}")
     c = subprocess.run([WARP_PY, str(REPO / "scripts" / "joint_sim.py"), str(RUN), "crop"],
