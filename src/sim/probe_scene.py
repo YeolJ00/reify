@@ -33,7 +33,11 @@ from ..data.assets import decimate, load_asset
 from .diff_collide_6dof import integrate_6dof, unit_mass_inertia
 from .diff_collide_mesh import sphere_cover
 
-V_EPS = 1.0e-3
+# Coulomb friction is regularised as ft = -mu*fn*vt/(|vt| + V_EPS), so below V_EPS the
+# body creeps instead of sticking. A FIXED 1 mm/s is 100%% of a 3 cm object's slip
+# threshold and negligible for a 1 m one -- the dominant scale artefact in the tilt probe.
+# The natural velocity scale of a gravity problem is sqrt(g*L), so set this per scene.
+V_EPS = float(os.environ.get("PROBE_V_EPS", "1.0e-3"))
 
 
 @wp.kernel
@@ -125,6 +129,14 @@ class ProbeScene:
         self._cd_limit = None
         self.k, self.ground_z = float(k), float(ground_z)
         self.gravity = wp.vec3(*gravity)
+        # TIME-VARYING GRAVITY. A tilt ramp used to be run as a sequence of separate
+        # scenes, one per angle, carrying position and linear velocity forward. But
+        # __init__ resets orientation to identity and angular velocity to zero, so every
+        # angle step teleported the body upright and de-spun it -- an energy injection of
+        # fixed absolute size, negligible at 20 cm and dominant at 3 cm. Ramping gravity
+        # inside ONE rollout removes the transient entirely and keeps the whole probe a
+        # single unbroken graph.
+        self.gravity_seq = None
 
         cl, body, vols = [], [], []
         if ball_radius is not None:
@@ -235,7 +247,9 @@ class ProbeScene:
         self.rot[0].assign(np.tile([0, 0, 0, 1.0], (self.N, 1)).astype(np.float32))
         self.vlin[0].assign(self.vlin0)
         self.vang[0].assign(self.vang0)
+        gseq = self.gravity_seq
         for t in range(self.n_steps):
+            g_t = self.gravity if gseq is None else wp.vec3(*gseq[t])
             self.force.zero_(); self.torque.zero_()
             wp.launch(world_spheres, self.nS,
                       inputs=[self.pos[t], self.rot[t], self.center_local, self.body], outputs=[self.world])
@@ -249,7 +263,7 @@ class ProbeScene:
                           outputs=[self.force, self.torque])
             wp.launch(integrate_6dof, self.N,
                       inputs=[self.pos[t], self.rot[t], self.vlin[t], self.vang[t], self.force, self.torque,
-                              self.mass, self.inv_mass, self.G, self.Ginv, self.gravity, self.dt],
+                              self.mass, self.inv_mass, self.G, self.Ginv, g_t, self.dt],
                       outputs=[self.pos[t + 1], self.rot[t + 1], self.vlin[t + 1], self.vang[t + 1]])
 
     def positions(self, stride=20):

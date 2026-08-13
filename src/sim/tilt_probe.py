@@ -122,3 +122,36 @@ def classify(extents_cm):
     if r <= TOPPLE_RATIO_MAX:
         return "topples"
     return "marginal"
+
+
+def ramp_gravity_seq(deg0, deg1, n_frames, substeps, settle_frames=6, g=G):
+    """Gravity for a CONTINUOUS tilt ramp: one rollout, angle rising per step.
+
+    Replaces the old per-angle restart loop. `settle_frames` holds the ramp at `deg0`
+    so the body can come to rest on the incline before tilting starts -- otherwise the
+    drop-in transient is read as slip.
+    """
+    import numpy as np
+    hold = np.full(settle_frames * substeps, float(deg0))
+    rise = np.linspace(deg0, deg1, (n_frames - settle_frames) * substeps)
+    return np.array([tilt_gravity(a, g) for a in np.deg2rad(np.concatenate([hold, rise]))],
+                    dtype=np.float32)
+
+
+def onset_angle(pos_xy, deg0, deg1, n_frames, settle_frames, size, frac=0.05):
+    """First ramp angle at which the body has moved `frac` of its own size.
+
+    Scale-relative by construction: the same fraction of object size at every scale,
+    so the reported angle is comparable across a 40x size range.
+    """
+    import numpy as np
+    P = np.asarray(pos_xy, float)
+    ref = P[settle_frames]                      # position AFTER settling, not at t=0
+    d = np.linalg.norm(P - ref, axis=-1)
+    hit = np.nonzero(d > frac * size)[0]
+    hit = hit[hit >= settle_frames]
+    if len(hit) == 0:
+        return None
+    f = int(hit[0])
+    span = max(n_frames - settle_frames - 1, 1)
+    return float(deg0 + (deg1 - deg0) * (f - settle_frames) / span)

@@ -1,46 +1,67 @@
-# Scale range — measured, not assumed
+# Scale range and the continuous ramp — measured
 
-**Question:** does the pipeline work for objects much larger and much smaller than
-the ~20 cm assets everything was calibrated on?
+## What was fixed: the ramp is now one rollout
 
-**Test:** slip angle is scale-free physics (`tan θ = μ`), so any drift with scale is
-an artifact. wooden_bowl, μ = 0.40 (true slip angle 21.8°), scaled 0.15× to 6×.
+The tilt probe used to run as a **sequence of separate scenes**, one per angle, carrying
+position and linear velocity forward. `ProbeScene.__init__` resets orientation to identity
+and angular velocity to zero, so every angle step teleported the body upright and de-spun
+it — 30+ artificial kicks per probe.
 
-| scale | size | measured slip angle | with k ∝ s² |
+`ProbeScene.gravity_seq` now supplies **per-step gravity inside a single rollout**
+(`tilt_probe.ramp_gravity_seq`). No kernel change was needed — gravity was already a
+per-step argument to `integrate_6dof`. The whole ramp is one unbroken graph, which is also
+what a gradient path would require later.
+
+## What that bought: friction reads correctly at the calibrated scale
+
+Slip angle vs. μ on the wooden bowl at 1×, continuous ramp, 10-frame settle:
+
+| μ | true slip angle | measured | error |
 |---|---|---|---|
-| 0.15 | 2.9 cm | 4.0° | 4.0° |
-| 0.35 | 6.8 cm | 4.0° | 4.0° |
-| **1.00** | **19.4 cm** | **24.0°** | **24.0°** |
-| 2.50 | 48.4 cm | 29.0° | 13.0° |
-| 6.00 | 116.2 cm | 39.0° | 33.0° |
+| 0.20 | 11.3° | 16.0° | +4.7° |
+| 0.30 | 16.7° | 21.5° | +4.8° |
+| 0.40 | 21.8° | 22.5° | **+0.7°** |
+| 0.55 | 28.8° | 26.9° | −1.9° |
+| 0.70 | 35.0° | 34.5° | **−0.5°** |
 
-Spread **35°** on a quantity that should not vary at all. Only the calibrated scale
-(24.0° vs a true 21.8°) is right.
+Monotone throughout and within ~1° for μ ≥ 0.4. Before the fix the same probe saturated
+badly (μ=1.0 read 30.3° against a true 45°). **This is the first quantitatively correct
+physical readout the project has produced.**
 
-## Two causes, both implementation
+## What was NOT fixed: scale
 
-**1. Contact stiffness is fixed while mass scales as s³.** Resting penetration is
-`m·g/k`, so pen/size spans 0.013% to 21.5% — a 1300× range. At 6× the bowl sinks
-250 mm into a table it should rest on.
+Slip angle is scale-free (`tan θ = μ`), so any spread is artefact. Measured 0.15×–6×:
 
-Fix: `k ∝ s²` (from `pen = m·g/k` with `m ~ s³`, requiring `pen ~ s`). Verified to
-help — spread 35° → 29° — but it is not the dominant term.
+| scale | size | slip angle (μ=0.40, true 21.8°) |
+|---|---|---|
+| 0.15 | 2.9 cm | 5.1° |
+| 0.35 | 6.8 cm | 5.1° |
+| **1.00** | **19.4 cm** | **22.5°** |
+| 2.50 | 48.4 cm | 29.1° |
+| 6.00 | 116.2 cm | 32.4° |
 
-**2. The tilt ramp resets orientation every step.** `ProbeScene.__init__` hard-assigns
-`rot[0] = identity` (probe_scene.py:235) and defaults `vang0 = 0`. The ramp rebuilds
-the scene at each angle carrying position and linear velocity only, so the object is
-teleported upright and de-spun 30+ times per probe. The kick is a fixed absolute size,
-so it is negligible at 1× and dominant at 0.15×, where it trips the onset detector at
-the very first ramp step.
+Five hypotheses tested, **all five rejected or marginal**:
 
-Fix: carry `rot` and `vang` across restarts, or run the ramp as one continuous rollout
-with time-varying gravity instead of a sequence of restarts. The second is better —
-it also removes the transient at 1× and makes the probe differentiable end to end.
+| hypothesis | result |
+|---|---|
+| contact `k` fixed while `m ~ s³` → `k ∝ s²` | spread 35° → 29°, real but minor |
+| restart transient → continuous ramp | 29° → 26.3°, minor |
+| spawn gap fixed at 2 mm → `∝ s` | no effect |
+| `V_EPS` friction regulariser fixed at 1 mm/s → `∝ √(gL)` | 27.3° → 26.2°, negligible |
+| fixed `dt` vs natural period `√(L/g)` → substeps `∝ 1/√s` | no effect |
 
-## Where we stand
+**The actual small-scale failure is a contact explosion, not a mis-measured slip.**
+Trajectory inspection at 0.15×: the body moves 41,000% of its own size horizontally and
+**88,000% upward** — it is launched, not slipped. It reads 5.1° for μ = 0.20, 0.40 and
+0.70 alike, i.e. friction-independent. Cause not yet identified; it is none of the five
+above.
 
-Validated at the calibrated scale only. Do not treat results from objects far from
-~20 cm as physics until the ramp is one continuous rollout. This affects the tilt probe,
-which is the project's single best observable (5/6, 4/6 sign consistency) — the restart
-transient is present in every one of those numbers too, at 1× where it is small but
-not zero.
+## Working range
+
+**Validated: roughly 0.5×–2.5× the calibrated size (≈10–50 cm).** At 1× the friction
+readout is accurate to ~1°. At 2.5× it reads +7° high. Below ~7 cm the contact is unstable
+and the probe returns a constant unrelated to μ.
+
+Note also that the *scene* is fixed — one table at 0.706 m. A 116 cm bowl on it is not a
+sensible experiment regardless of solver behaviour. Extending the range means rescaling the
+scene with the object, not only the object.
