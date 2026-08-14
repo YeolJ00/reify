@@ -24,7 +24,7 @@ import warp as wp
 sys.path.insert(0, "/home/nas5/jooyeolyun/repos/simulation-assestization")
 from src.data.assets import load_asset                                  # noqa: E402
 from src.sim.deformable import (build_cloth_model, build_soft_model,     # noqa: E402
-                                cloth_from_mesh, tets_from_mesh)
+                                cloth_grid_from_asset, tets_from_mesh)
 
 FPS = 60.0
 
@@ -56,9 +56,10 @@ def simulate(model, n_frames, substeps, bound=3.0):
     return np.stack(out)
 
 
-def cloth_run(tri_ke, tm, n_frames=60, substeps=256):
-    m = build_cloth_model(tm, density=180.0, tri_ke=tri_ke, tri_kd=2.0,
-                          edge_ke=tri_ke * 1.0e-3, pos=(0.0, 0.0, 0.45))
+def cloth_run(tri_ke, grid, n_frames=60, substeps=128):
+    nx, ny, cell = grid
+    m = build_cloth_model(nx, ny, cell, mass=0.004, tri_ke=tri_ke, tri_kd=2.0,
+                          edge_ke=tri_ke * 1.0e-3, pos=(0.0, 0.0, 0.40))
     Q = simulate(m, n_frames, substeps)
     if Q is None:
         return None
@@ -71,7 +72,7 @@ def cloth_run(tri_ke, tm, n_frames=60, substeps=256):
 
 def soft_run(k_mu, V, T, n_frames=45, substeps=256):
     m = build_soft_model(V, T, density=150.0, k_mu=k_mu, k_lambda=k_mu * 2.0,
-                         k_damp=1.0, pos=(0.0, 0.0, 0.22))
+                         k_damp=1.0, pos=(0.0, 0.0, 0.13))
     Q = simulate(m, n_frames, substeps)
     if Q is None:
         return None
@@ -87,11 +88,14 @@ def main():
     wp.init()
     res = {"cloth": [], "soft": []}
     with wp.ScopedDevice("cuda:0"):
-        tm = cloth_from_mesh(load_asset("cloth", "Provence_Bath_Towel_Royal_Blue"), 1200, 1.0)
-        print(f"=== CLOTH DRAPE  (towel, {len(tm.faces)} faces from 101142)")
+        CELL = 0.014
+        nx, ny, w, d = cloth_grid_from_asset(
+            load_asset("cloth", "Provence_Bath_Towel_Royal_Blue"), cell=CELL)
+        grid = (nx, ny, CELL)
+        print(f"=== CLOTH DRAPE  (towel {w*100:.0f}x{d*100:.0f} cm -> {nx}x{ny} uniform grid)")
         print(f"  {'tri_ke':>9}{'spread cm':>11}{'footprint m2':>14}{'height cm':>11}")
-        for ke in [20.0, 60.0, 180.0, 540.0, 1620.0]:
-            r = cloth_run(ke, tm)
+        for ke in [50.0, 150.0, 450.0, 1350.0, 4050.0]:
+            r = cloth_run(ke, grid)
             if r is None:
                 print(f"  {ke:>9.0f}   DIVERGED"); continue
             r["tri_ke"] = ke; res["cloth"].append(r)

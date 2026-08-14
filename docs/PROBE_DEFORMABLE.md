@@ -36,19 +36,46 @@ a step ~600× finer than the mesh's overall scale suggests. Quadric decimation p
 regions as large triangles and keeps slivers along creases — it optimises for visual fidelity,
 which is the opposite of what a solver needs.
 
-## What would fix it
+## Two wrong diagnoses, recorded because they were confidently stated
 
-**Uniform remeshing, not decimation.** The cloth needs roughly equilateral triangles at one
-target edge length. `trimesh` has no isotropic remesher; options are `pymeshlab`
-(`meshing_isotropic_explicit_remeshing`), `open3d`, or subdividing a fitted grid and projecting
-onto the scan. Any of these is a dependency decision rather than a code problem.
+**"Mesh quality — 639x edge-length ratio."** True of the decimated scan, and it did motivate a
+real improvement (below), but it was not the cause: a clean 25x19 uniform grid with a single
+edge length diverges identically.
 
-The same applies to the soft body: the voxel tetrahedralisation is uniform *by construction*
-(all tets come from a regular grid), so the duck should be better behaved than the towel — its
-divergence is more likely the drop height and contact stiffness against `add_ground_plane`,
-which is a separate tuning pass that was not reached.
+**"pymeshlab is needed for isotropic remeshing."** Reaching for a dependency instead of
+questioning the premise. No new dependency is needed, and the premise was wrong twice over --
+see below.
 
-## Honest status
+## The improvement that survives both
 
-The asset→deformable path is built and its two hard parts are verified. The probes do not yet
-produce a reading. Nothing here should be quoted as a stiffness measurement.
+`cloth_grid_from_asset` sizes a **uniform grid** from the scan's bounding box rather than
+simulating the scan's own triangles. Beyond the numerics, this is the physically correct
+choice: a scan is one **crumpled configuration frozen in place**, and a cloth's rest state is
+what sets the strain in every triangle. Feeding a crumpled snapshot as the rest shape bakes the
+folds into the zero-energy configuration, so the cloth can never drape -- it is already
+"relaxed" in the shape it was scanned in. The scan supplies dimensions and appearance; the
+simulation mesh should be regular, which is what `build_flag_model` has always done.
+
+## Where the fault actually is
+
+Isolation test, 25x19 grid, 64 substeps, 0.5 s:
+
+| configuration | stable | max displacement |
+|---|---|---|
+| no ground, `contacts=None` | no | **79.3 m** |
+| ground, `contacts=None` | no | 74.9 m |
+| ground, `model.collide()` | no | 90.5 m |
+
+A flat cloth at its rest configuration has zero internal strain and, in free fall with no
+contacts, should simply translate 1.2 m in 0.5 s. It moves 79. So the fault is neither contact
+handling nor mesh quality but the **model construction itself** -- something in the
+`add_cloth_grid` parameters or the step loop is injecting energy from the first substep.
+
+## Next step, concrete
+
+`FlagSim` (`src/sim/rollout.py`) + `build_flag_model` (`src/sim/scene.py`) run this same solver
+on this same kind of grid and are known-good, with a working config at `configs/flag.yaml`.
+Diff the builder call and the step loop against them -- particularly the per-particle `mass`
+(0.004 kg here), `edge_ke`/`edge_kd` scaling, whether `b.color()` belongs before `finalize()`
+for `SolverSemiImplicit`, and the preallocated-state loop versus the two-state ping-pong used
+here. That is a direct comparison against working code, not an open-ended debug.

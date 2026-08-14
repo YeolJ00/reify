@@ -26,19 +26,28 @@ def _signed_dist(m: wp.uint64, pts: wp.array(dtype=wp.vec3), out: wp.array(dtype
         out[i] = 1.0e6
 
 
-def cloth_from_mesh(asset_mesh, target_faces=1200, scale=1.0):
-    """Decimate a scanned cloth asset down to something a cloth solver can integrate.
+def cloth_grid_from_asset(asset_mesh, cell=0.012, scale=1.0):
+    """A UNIFORM grid sized from the scan -- not the scan's own triangles.
 
-    The GSO cloth scans are 2-10 MB dense surfaces; feeding one straight to a cloth solver
-    gives ~100k particles and a timestep nothing can afford. Decimation is not cosmetic here,
-    it is what makes the asset simulable at all.
+    Decimating the scan and simulating that was wrong twice over.
+
+    Numerically: quadric decimation optimises visual fidelity, so it keeps slivers along
+    creases. The decimated towel had a 639x edge-length ratio (0.206 mm to 131.8 mm), and
+    explicit stability is set by the SMALLEST edge -- a 0.2 mm sliver in a 35 cm towel demands
+    a timestep ~600x finer than the mesh's scale suggests. Every stiffness diverged.
+
+    Physically, which matters more: a scan is one CRUMPLED configuration frozen in place. Cloth
+    rest state is flat, and the rest state is what sets the strain in every triangle. Feeding a
+    crumpled snapshot as the rest shape means the cloth starts with the folds built into its
+    zero-energy configuration -- so it can never drape, because it is already "relaxed" in the
+    shape it was scanned in.
+
+    The scan supplies DIMENSIONS and appearance. The simulation mesh should be a regular grid,
+    which is also what `build_flag_model` has always done for the synthetic flag.
     """
-    tm = asset_mesh.copy()
-    tm.apply_scale(scale)
-    if len(tm.faces) > target_faces:
-        tm = tm.simplify_quadric_decimation(face_count=target_faces)
-    tm.remove_unreferenced_vertices()
-    return tm
+    ext = np.asarray(asset_mesh.extents, float) * float(scale)
+    w, d = float(np.sort(ext)[-1]), float(np.sort(ext)[-2])   # two largest = the sheet
+    return max(int(round(w / cell)), 4), max(int(round(d / cell)), 4), w, d
 
 
 def tets_from_mesh(asset_mesh, pitch, scale=1.0):
@@ -98,15 +107,15 @@ def tets_from_mesh(asset_mesh, pitch, scale=1.0):
     return V, T
 
 
-def build_cloth_model(tm, density, tri_ke, tri_kd, edge_ke, pos=(0, 0, 1.0), ground_z=0.0):
+def build_cloth_model(nx, ny, cell, mass, tri_ke, tri_kd, edge_ke, pos=(0, 0, 1.0)):
+    """Flat rest state, uniform cells -- one edge length, so one stable timestep."""
     b = newton.ModelBuilder()
-    b.add_cloth_mesh(pos=wp.vec3(*pos), rot=wp.quat_identity(), scale=1.0,
-                     vel=wp.vec3(0.0, 0.0, 0.0),
-                     vertices=[wp.vec3(*v) for v in np.asarray(tm.vertices, np.float32)],
-                     indices=np.asarray(tm.faces, np.int32).flatten().tolist(),
-                     density=float(density), tri_ke=float(tri_ke), tri_ka=float(tri_ke),
-                     tri_kd=float(tri_kd), edge_ke=float(edge_ke), edge_kd=1.0e-3)
+    b.add_cloth_grid(pos=wp.vec3(*pos), rot=wp.quat_identity(), vel=wp.vec3(0.0, 0.0, 0.0),
+                     dim_x=int(nx), dim_y=int(ny), cell_x=float(cell), cell_y=float(cell),
+                     mass=float(mass), tri_ke=float(tri_ke), tri_ka=float(tri_ke),
+                     tri_kd=float(tri_kd), edge_ke=float(edge_ke), edge_kd=1.0e-4)
     b.add_ground_plane()
+    b.color()
     return b.finalize()
 
 
