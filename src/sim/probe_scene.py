@@ -288,11 +288,49 @@ class ProbeScene:
         m = np.asarray(dens, np.float64) * self.volumes
         self.mass.assign(m.astype(np.float32)); self.inv_mass.assign((1.0 / m).astype(np.float32))
 
-    def rebuild_stiffness(self):
-        """Recompute derived per-body k after masses change (k=None mode)."""
-        if self._k_in is None:
-            m = self.mass.numpy()
-            self.k.assign((m * 9.81 / (0.005 * np.asarray(self._sizes))).astype(np.float32))
+    def contact_counts(self, step=None):
+        """Spheres actually carrying load, per body, at a given step."""
+        t = self.n_steps if step is None else step
+        wp.launch(world_spheres, self.nS,
+                  inputs=[self.pos[t], self.rot[t], self.center_local, self.body],
+                  outputs=[self.world])
+        W = self.world.numpy(); bod = self.body.numpy()
+        pen = (self.ground_z + self.radius) - W[:, 2]
+        return np.array([int(((pen > 0) & (bod == b)).sum()) for b in range(self.N)])
+
+    def calibrate_stiffness(self, pen_frac=0.005, settle_steps=None):
+        """Two-pass per-body contact stiffness.
+
+        A body rests on MANY spheres, not one, so `k = m*g/pen` overshoots by the number of
+        load-bearing contacts -- measured here as 1 to 458 across a 14-object scene, i.e.
+        not a constant that can be folded into a coefficient. Pass 1 settles with whatever k
+        is current and counts contacts; pass 2 sets
+
+            k_i = m_i * g / (N_i * pen_frac * size_i)
+
+        so every body sinks the same fraction of its own size regardless of mass, shape or
+        how much of it touches down. This is the layered approach: geometry-dependent
+        quantities are measured first and frozen, then the material parameters are fitted
+        on top of a contact that no longer varies with either.
+
+        Returns the measured contact counts.
+        """
+        # Counting contacts from a rollout samples ONE instant, and a body still bouncing
+        # reports N=1 -- which is how a brass pot got a stiffness meant for a body resting
+        # on a single point. The footprint is a property of the SHAPE, so measure it
+        # geometrically instead: spheres whose centre sits within a thin band above the
+        # lowest one. Deterministic, needs no simulation, and cannot be caught mid-bounce.
+        C = self.center_local.numpy(); bod = self.body.numpy()
+        N = np.ones(self.N, dtype=int)
+        for b in range(self.N):
+            z = C[bod == b][:, 2]
+            if len(z) == 0:
+                continue
+            band = 0.02 * float(self._sizes[b])
+            N[b] = max(int((z <= z.min() + band).sum()), 1)
+        m = self.mass.numpy(); sz = np.asarray(self._sizes, float)
+        self.k.assign((m * 9.81 / (N * pen_frac * sz)).astype(np.float32))
+        return N
 
     def set_mu(self, v):
         """Scalar (all bodies) or per-body sequence of length N."""

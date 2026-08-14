@@ -125,6 +125,11 @@ def main():
                         ground_mu=TABLE["mu"], ground_cd=TABLE["cd"])
         # back-solve density from the TARGET mass so the physics gets the real mass
         sn.set_densities(np.asarray(masses) / np.asarray(sn.volumes))
+        # LAYERED FIT, pass 1: geometry. Contact stiffness is measured and frozen before
+        # any material parameter is judged, so friction and damping are fitted on top of a
+        # contact that no longer varies with mass, shape or contact area.
+        Ncon = sn.calibrate_stiffness()
+        print("  contact spheres per body:", dict(zip(keys, [int(v) for v in Ncon])))
         sn.gravity_seq = ramp_gravity_seq(DEG0, DEG1, NF, SUBSTEPS, SETTLE)
         sn.rollout()
         P, Q = sn.positions(SUBSTEPS)[:NF], sn.rotations(SUBSTEPS)[:NF]
