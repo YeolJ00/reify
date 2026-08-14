@@ -27,9 +27,16 @@ import numpy as np
 
 
 def project_points(cam, pts):
-    """(N,3) world -> (N,2) pixels, via src.render.camera.Camera."""
-    uv, ok = cam.project(np.asarray(pts, np.float64))
-    return np.asarray(uv, float), np.asarray(ok, bool)
+    """(N,3) world -> (N,2) pixels, via src.render.camera.Camera.
+
+    Camera.project returns (uv, DEPTH), not (uv, valid). Unpacking the second value as a
+    validity flag made every non-zero depth "valid", including NEGATIVE depths -- points
+    BEHIND the camera. Those project to mirrored coordinates far outside the frame and, since
+    crop_box takes the min/max over all points, a single one silently blew the box up to the
+    whole frame. Validity is depth > 0.
+    """
+    uv, depth = cam.project(np.asarray(pts, np.float64))
+    return np.asarray(uv, float), np.asarray(depth, float) > 0.0
 
 
 PAD_TIGHT, PAD_CONTEXT = 0.12, 1.20

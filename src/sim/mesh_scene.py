@@ -9,8 +9,8 @@ import warp as wp
 
 from ..data.assets import decimate, load_asset
 from .diff_collide_6dof import integrate_6dof
-from .mesh_contact import (ground_contact_mesh, pair_contact_mesh, vertex_weights,
-                           world_verts)
+from .mesh_contact import (apply_revolute, ground_contact_mesh, pair_contact_mesh,
+                           vertex_weights, world_verts)
 
 
 class MeshProbeScene:
@@ -30,8 +30,13 @@ class MeshProbeScene:
         loc, bod, wts, self.meshes, self.coms, self.sizes, vols = [], [], [], [], [], [], []
         mesh_ids = []
         for bi, name in enumerate(names):
-            cat, _, nm = name.rpartition("/")
-            tm = decimate(load_asset(cat or "rigid", nm), faces).copy()
+            if hasattr(name, "vertices"):
+                # a trimesh passed directly -- procedural rig parts (balance beam, pans)
+                # live in the same scene as scanned assets and need the same exact contact
+                tm = name.copy()
+            else:
+                cat, _, nm = name.rpartition("/")
+                tm = decimate(load_asset(cat or "rigid", nm), faces).copy()
             if mesh_scale is not None:
                 s = float(mesh_scale[bi] if hasattr(mesh_scale, "__len__") else mesh_scale)
                 tm.apply_scale(s)
@@ -80,6 +85,11 @@ class MeshProbeScene:
         self.force = wp.zeros(self.N, dtype=wp.vec3)
         self.torque = wp.zeros(self.N, dtype=wp.vec3)
         self.world = wp.zeros(self.nV, dtype=wp.vec3)
+        # revolute joints: off for every body unless set_hinge() is called
+        self.is_hinge = wp.zeros(self.N, dtype=int)
+        self.anchor = wp.zeros(self.N, dtype=wp.vec3)
+        self.axis = wp.array(np.tile([0.0, 1.0, 0.0], (self.N, 1)).astype(np.float32),
+                             dtype=wp.vec3)
 
     def set_masses(self, m):
         m = np.asarray(m, np.float64).reshape(self.N)
@@ -102,6 +112,21 @@ class MeshProbeScene:
             G += np.eye(3) * (1e-9 + 1e-6 * np.trace(G) / 3.0)   # keep it invertible
             Gs.append(G.astype(np.float32)); Gis.append(np.linalg.inv(G).astype(np.float32))
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
+
+    def set_hinge(self, bi, anchor, axis=(0.0, 1.0, 0.0), damp_per_sec=6.0):
+        """Pin body `bi` to `anchor`, free to rotate only about `axis`.
+
+        `damp_per_sec` is the exponential decay rate of angular velocity, converted to a
+        per-step factor -- so the settling time is a physical time, independent of dt.
+        """
+        self._hinge_damp = float(np.exp(-float(damp_per_sec) * self.dt))
+        return self._set_hinge_arrays(bi, anchor, axis)
+
+    def _set_hinge_arrays(self, bi, anchor, axis=(0.0, 1.0, 0.0)):
+        """Pin body `bi` to `anchor`, free to rotate only about `axis`. Exact, no stiffness."""
+        h = self.is_hinge.numpy(); h[bi] = 1; self.is_hinge.assign(h)
+        a = self.anchor.numpy(); a[bi] = np.asarray(anchor, np.float32); self.anchor.assign(a)
+        x = self.axis.numpy(); x[bi] = np.asarray(axis, np.float32); self.axis.assign(x)
 
     def calibrate_stiffness(self, pen_frac=0.005):
         """k_i so each body sinks pen_frac of its own size under its own weight.
@@ -142,6 +167,10 @@ class MeshProbeScene:
                               self.G, self.Ginv, g_t, self.dt],
                       outputs=[self.pos[t + 1], self.rot[t + 1],
                                self.vlin[t + 1], self.vang[t + 1]])
+            wp.launch(apply_revolute, self.N,
+                      inputs=[self.pos[t + 1], self.rot[t + 1], self.vlin[t + 1],
+                              self.vang[t + 1], self.is_hinge, self.anchor, self.axis,
+                              getattr(self, "_hinge_damp", 1.0)])
 
     def rest_height(self, bi):
         """Table-relative z that puts this body's lowest vertex exactly on the table."""

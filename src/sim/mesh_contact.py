@@ -150,3 +150,45 @@ def vertex_weights(mesh):
         np.add.at(a, F[:, c], area / 3.0)
     s = a.sum()
     return (a / s if s > 0 else np.full(len(V), 1.0 / max(len(V), 1)))
+
+
+@wp.kernel
+def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
+                   vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
+                   is_hinge: wp.array(dtype=int), anchor: wp.array(dtype=wp.vec3),
+                   axis: wp.array(dtype=wp.vec3), damp: float):
+    """Reduced-coordinate revolute joint, applied as a projection after integration.
+
+    A pan balance needs a real pivot, and a penalty spring would introduce a compliance whose
+    stiffness has to be tuned and which biases the tipping threshold -- exactly the kind of
+    knob that turned the tilt detector's offset into a calibration step. Projecting the state
+    onto the joint's allowed DOF instead is EXACT: the beam cannot translate at all, and can
+    only spin about its axis, with no stiffness parameter anywhere.
+
+    Position: pinned to the anchor.
+    Rotation: the component about `axis` is kept, everything else is discarded by
+              re-forming the quaternion from the axis and the extracted swing angle.
+    Velocity: linear zeroed, angular projected onto the axis.
+    """
+    b = wp.tid()
+    if is_hinge[b] == 0:
+        return
+    a = wp.normalize(axis[b])
+    pos[b] = anchor[b]
+    vlin[b] = wp.vec3(0.0, 0.0, 0.0)
+    # Pivot damping. An ideal frictionless hinge never settles -- the beam swings as an
+    # undamped pendulum, so reading the tilt at any fixed frame samples an arbitrary phase
+    # of the oscillation rather than the equilibrium (measured 3/7 correct). Every real
+    # balance has pivot friction and air drag; without them the probe has no steady state
+    # to read at all.
+    vang[b] = a * wp.dot(vang[b], a) * damp
+    # swing-twist: keep only the twist about `a`
+    q = rot[b]
+    v = wp.vec3(q[0], q[1], q[2])
+    proj = a * wp.dot(v, a)
+    tw = wp.quat(proj[0], proj[1], proj[2], q[3])
+    n = wp.sqrt(tw[0] * tw[0] + tw[1] * tw[1] + tw[2] * tw[2] + tw[3] * tw[3])
+    if n > 1.0e-9:
+        rot[b] = wp.quat(tw[0] / n, tw[1] / n, tw[2] / n, tw[3] / n)
+    else:
+        rot[b] = wp.quat(0.0, 0.0, 0.0, 1.0)
