@@ -14,10 +14,10 @@ from .mesh_contact import (apply_revolute, ground_contact_mesh, pair_contact_mes
 
 
 class MeshProbeScene:
-    def __init__(self, names, pos0, vel0, ang0=None, densities=None, masses=None,
+    def __init__(self, names, pos0, vel0, ang0=None, rot0=None, densities=None, masses=None,
                  ground_z=0.706, dt=1.0 / 1440.0, n_steps=1400, k=2500.0, cd=3000.0,
                  mu=0.5, gravity=(0.0, 0.0, -9.81), mesh_scale=None, faces=1200,
-                 ground_mu=None, ground_cd=None, query_dist=0.05):
+                 ground_mu=None, ground_cd=None, query_dist=0.05, table=None):
         self.N = len(names)
         self.dt, self.n_steps = float(dt), int(n_steps)
         self.ground_z = float(ground_z)
@@ -26,6 +26,8 @@ class MeshProbeScene:
         self._gmu = float(ground_mu) if ground_mu is not None else -1.0
         self._gcd = float(ground_cd) if ground_cd is not None else -1.0
         self.query_dist = float(query_dist)
+        # (half_width, half_depth) of the table, or None for an unbounded plane
+        self.half_w, self.half_d = (float(table[0]), float(table[1])) if table else (-1.0, -1.0)
 
         loc, bod, wts, self.meshes, self.coms, self.sizes, vols = [], [], [], [], [], [], []
         mesh_ids = []
@@ -79,6 +81,13 @@ class MeshProbeScene:
         self.pos0 = np.asarray(pos0, np.float32)
         self.vlin0 = np.asarray(vel0, np.float32)
         self.vang0 = np.asarray(ang0 if ang0 is not None else np.zeros((self.N, 3)), np.float32)
+        # INITIAL ORIENTATION. rot[0] was hard-coded to identity, so a body could only ever
+        # start in its authored pose -- which makes a rocking probe impossible, since a bowl
+        # sitting flat does not rock. Supplying rot0 lets the excitation be a controlled
+        # DISPLACEMENT (tip it and release) rather than a velocity kick, and a displacement
+        # is what makes the initial amplitude the same for every candidate.
+        self.rot0 = (np.tile([0.0, 0.0, 0.0, 1.0], (self.N, 1)).astype(np.float32)
+                     if rot0 is None else np.asarray(rot0, np.float32).reshape(self.N, 4))
         mk = lambda d: [wp.zeros(self.N, dtype=d) for _ in range(self.n_steps + 1)]
         self.pos, self.rot = mk(wp.vec3), mk(wp.quat)
         self.vlin, self.vang = mk(wp.vec3), mk(wp.vec3)
@@ -140,7 +149,7 @@ class MeshProbeScene:
 
     def rollout(self):
         self.pos[0].assign(self.pos0)
-        self.rot[0].assign(np.tile([0, 0, 0, 1.0], (self.N, 1)).astype(np.float32))
+        self.rot[0].assign(self.rot0)
         self.vlin[0].assign(self.vlin0)
         self.vang[0].assign(self.vang0)
         gseq = self.gravity_seq
@@ -153,7 +162,7 @@ class MeshProbeScene:
             wp.launch(ground_contact_mesh, self.nV,
                       inputs=[self.world, self.body, self.pos[t], self.vlin[t], self.vang[t],
                               self.ground_z, self.k, self.cd, self.mu, self._gmu, self._gcd,
-                              self.weight],
+                              self.weight, self.half_w, self.half_d],
                       outputs=[self.force, self.torque])
             if self.N > 1:
                 wp.launch(pair_contact_mesh, self.nV * self.N,

@@ -52,11 +52,16 @@ def ground_contact_mesh(world: wp.array(dtype=wp.vec3), body: wp.array(dtype=int
                         vang: wp.array(dtype=wp.vec3), ground_z: float,
                         k: wp.array(dtype=float), cd: wp.array(dtype=float),
                         mu: wp.array(dtype=float), ground_mu: float, ground_cd: float,
-                        weight: wp.array(dtype=float),
+                        weight: wp.array(dtype=float), half_w: float, half_d: float,
                         force: wp.array(dtype=wp.vec3), torque: wp.array(dtype=wp.vec3)):
     """Exact plane contact: every mesh vertex tested directly against the table."""
     i = wp.tid()
     b = body[i]
+    # A BOUNDED table. The ground was an infinite plane, so nothing could ever fall off an
+    # edge -- which makes "does it leave the table" unrepresentable, and that is exactly the
+    # threshold form the bounce probe needs. Negative bounds keep the old infinite plane.
+    if half_w > 0.0 and (wp.abs(world[i][0]) > half_w or wp.abs(world[i][1]) > half_d):
+        return
     pen = ground_z - world[i][2]
     if pen > 0.0:
         r = world[i] - pos[b]
