@@ -76,6 +76,58 @@ def import_gltf(path):
     return bpy.context.view_layer.objects.active
 
 
+def import_any(asset_dir):
+    """Import a staged asset regardless of format.
+
+    Studio assets ship a top-level .gltf; Google-scanned objects ship meshes/model.obj with
+    an .mtl beside it. The old code globbed only for *.gltf and silently `continue`d, so six
+    of fourteen objects were absent from the render with no error -- the scene just looked
+    sparse. Anything unloadable now raises.
+    """
+    gl = list(asset_dir.glob("*.gltf")) + list(asset_dir.glob("*.glb"))
+    if gl:
+        return import_gltf(gl[0])
+    ob = list(asset_dir.glob("meshes/*.obj")) + list(asset_dir.glob("*.obj"))
+    if not ob:
+        raise SystemExit(f"no importable mesh in {asset_dir}")
+    before = set(bpy.data.objects)
+    bpy.ops.wm.obj_import(filepath=str(ob[0]))
+    new = [o for o in bpy.data.objects if o not in before and o.type == "MESH"]
+    if not new:
+        raise SystemExit(f"obj import produced no mesh: {ob[0]}")
+    for o in bpy.data.objects:
+        o.select_set(False)
+    for o in new:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = new[0]
+    if len(new) > 1:
+        bpy.ops.object.join()
+    ob_joined = bpy.context.view_layer.objects.active
+
+    # TEXTURE FIX-UP. Google-scanned MTLs say `map_Kd texture.png`, but the file actually
+    # lives at materials/textures/texture.png. Blender looks beside the .obj, finds nothing,
+    # and renders the object MAGENTA -- which is not just ugly, it is a different material
+    # than the one we are asking the judge about (rule 2: fixed target-material appearance).
+    tex = asset_dir / "materials" / "textures" / "texture.png"
+    if tex.exists():
+        img = bpy.data.images.load(str(tex), check_existing=True)
+        for slot in ob_joined.material_slots:
+            mat = slot.material
+            if mat is None:
+                continue
+            mat.use_nodes = True
+            nt = mat.node_tree
+            bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+            if bsdf is None:
+                bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+                out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"),
+                           nt.nodes.new("ShaderNodeOutputMaterial"))
+                nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+            texnode = nt.nodes.new("ShaderNodeTexImage"); texnode.image = img
+            nt.links.new(texnode.outputs["Color"], bsdf.inputs["Base Color"])
+    return ob_joined
+
+
 def main():
     poses = json.loads((LAB / "scene_poses.json").read_text())
     # A LAB may define its own object set (a bigger scene, different assets). Prefer it;
@@ -113,12 +165,9 @@ def main():
 
     objs, home = {}, {}
     for name, o in scene_cfg["objects"].items():
-        gl = list((REPO / "assets" / o["asset"]).glob("*.gltf"))
-        if not gl:
-            continue
-        b = import_gltf(gl[0])
+        b = import_any(REPO / "assets" / o["asset"])
         if b is None:
-            continue
+            raise SystemExit(f"failed to import {o['asset']}")
         b.name = name; b.scale = (o["scale"],) * 3
         b.rotation_euler = (b.rotation_euler[0], b.rotation_euler[1], o["rot_z"])
         b.location = tuple(o["pos"]); objs[name] = b; home[name] = tuple(o["pos"])
