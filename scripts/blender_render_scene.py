@@ -36,6 +36,9 @@ LAB = Path(os.environ["LAB"])
 CITY = REPO / "assets" / "scenes" / "city"
 CAM = {"eye": [0.72, -0.80, 1.12], "target": [-0.02, 0.02, 0.80], "fov_deg": 46,
        "width": 544, "height": 448}
+# The judge sees 544x448; a human watching the clip should not have to. RENDER_SCALE
+# multiplies both dimensions for viewing-quality output without moving the camera.
+_RS = float(os.environ.get("RENDER_SCALE", "1"))
 GROUND_Z = 0.706
 PIVOT = mathutils.Vector((-0.05, -0.06, GROUND_Z))   # matches DROP_XY in the sim
 
@@ -75,7 +78,14 @@ def import_gltf(path):
 
 def main():
     poses = json.loads((LAB / "scene_poses.json").read_text())
-    scene_cfg = json.loads((SCENE / "scene.json").read_text())
+    # A LAB may define its own object set (a bigger scene, different assets). Prefer it;
+    # fall back to the shared staging config. Objects named in scene_poses.json but absent
+    # here get parked out of frame, which is why a mismatch renders an empty table.
+    _lab_cfg = LAB / "scene.json"
+    scene_cfg = json.loads((_lab_cfg if _lab_cfg.exists() else SCENE / "scene.json").read_text())
+    _missing = set(next(iter(poses.values()))["objects"]) - set(scene_cfg["objects"])
+    if _missing:
+        raise SystemExit(f"poses name objects absent from scene config: {sorted(_missing)}")
     clear()
     world_hdri(str(CITY / "pretville_street_2k.hdr"))
     # LOOK F. The floor is a SHADOW CATCHER, not a surface. As an opaque plane it was lit
@@ -88,6 +98,14 @@ def main():
     bpy.context.active_object.is_shadow_catcher = True
 
     table = import_gltf(REPO / "assets/scenes/wooden_table_02/wooden_table_02_2k.gltf")
+    # A WIDER TABLE for multi-object scenes. 14 staged objects need 0.70 m of depth and
+    # the stock table gives 0.706 with no margin, so they overhang the edge and topple off
+    # for reasons that have nothing to do with their material. Scaling X/Y only keeps the
+    # surface at GROUND_Z, which is what the simulator assumes.
+    tsx, tsy = float(os.environ.get("TABLE_SX", "1")), float(os.environ.get("TABLE_SY", "1"))
+    if tsx != 1.0 or tsy != 1.0:
+        table.scale = (table.scale[0] * tsx, table.scale[1] * tsy, table.scale[2])
+        bpy.context.view_layer.update()
     bpy.context.view_layer.update()
     ztop = max((table.matrix_world @ v.co).z for v in table.data.vertices)
     table.location.z += GROUND_Z - ztop
@@ -110,8 +128,13 @@ def main():
         cd_ = bpy.data.cameras.new(f"c{vn}")
         co = bpy.data.objects.new(f"c{vn}", cd_)
         bpy.context.collection.objects.link(co)
-        co.location = mathutils.Vector(vc["eye"])
-        lk = mathutils.Vector(vc["target"]) - co.location
+        # CAM_PULL backs the camera away from its target along the same sight line, for
+        # scenes wider than the one these views were framed for. Direction and target are
+        # untouched, so the composition is preserved -- only the field of coverage grows.
+        _eye = mathutils.Vector(vc["eye"]); _tgt = mathutils.Vector(vc["target"])
+        _pull = float(os.environ.get("CAM_PULL", "1"))
+        co.location = _tgt + (_eye - _tgt) * _pull
+        lk = _tgt - co.location
         co.rotation_euler = lk.to_track_quat("-Z", "Y").to_euler()
         cd_.sensor_fit = "HORIZONTAL"; cd_.angle = math.radians(vc["fov_deg"])
         cams[vn] = co
@@ -132,7 +155,8 @@ def main():
             sc.cycles.device = "GPU"
         except Exception as e:
             print("GPU off:", e)
-    sc.render.resolution_x = CAM["width"]; sc.render.resolution_y = CAM["height"]
+    sc.render.resolution_x = int(CAM["width"] * _RS)
+    sc.render.resolution_y = int(CAM["height"] * _RS)
     sc.render.image_settings.file_format = "PNG"
 
     for key, info in poses.items():

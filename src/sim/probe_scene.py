@@ -68,7 +68,7 @@ def ground_contact_n(world: wp.array(dtype=wp.vec3), radius: float, body: wp.arr
         # where a spring-damper should be velocity-independent and real materials fall.
         fn = wp.max(k * pen - HC * cd[0] * pen * vc[2] - (1.0 - HC) * cd[0] * vc[2], 0.0)
         vt = wp.vec3(vc[0], vc[1], 0.0)
-        ft = -mu[0] * fn * vt / (wp.length(vt) + V_EPS)
+        ft = -mu[b] * fn * vt / (wp.length(vt) + V_EPS)
         f = wp.vec3(ft[0], ft[1], fn)
         wp.atomic_add(force, b, f)
         wp.atomic_add(torque, b, wp.cross(r, f))
@@ -102,7 +102,9 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
         fn = wp.max(k * overlap - HC * cd[0] * overlap * vn
                     - (1.0 - HC) * cd[0] * vn, 0.0)
         vt = vrel - vn * n
-        ft = -mu[0] * fn * vt / (wp.length(vt) + V_EPS)
+        # two bodies with different friction: the pair coefficient is the geometric mean,
+        # the usual convention and symmetric in i/j so the contact stays Newton's-third-law
+        ft = -wp.sqrt(mu[bi] * mu[bj]) * fn * vt / (wp.length(vt) + V_EPS)
         f = fn * n + ft
         wp.atomic_add(force, bi, f)
         wp.atomic_add(torque, bi, wp.cross(ri, f))
@@ -189,7 +191,11 @@ class ProbeScene:
         self.volumes = np.asarray(vols, np.float64)
         self._ball_R = ball_radius
 
-        self.mu = wp.array([float(mu)], dtype=float)
+        # PER-BODY friction, length N. A multi-object scene is the point of the tilt
+        # ramp -- each object must slide at its OWN angle, not a scene-wide average.
+        self.mu = wp.array(np.full(self.N, float(mu), np.float32)
+                           if np.isscalar(mu) else
+                           np.asarray(mu, np.float32).reshape(self.N), dtype=float)
         self.cd = wp.array([float(cd)], dtype=float)
         self.mass = wp.zeros(self.N, dtype=float); self.inv_mass = wp.zeros(self.N, dtype=float)
         self.G = wp.zeros(self.N, dtype=wp.mat33); self.Ginv = wp.zeros(self.N, dtype=wp.mat33)
@@ -239,7 +245,11 @@ class ProbeScene:
         m = np.asarray(dens, np.float64) * self.volumes
         self.mass.assign(m.astype(np.float32)); self.inv_mass.assign((1.0 / m).astype(np.float32))
 
-    def set_mu(self, v): self.mu.assign(np.array([float(v)], np.float32))
+    def set_mu(self, v):
+        """Scalar (all bodies) or per-body sequence of length N."""
+        a = np.full(self.N, float(v), np.float32) if np.isscalar(v) else \
+            np.asarray(v, np.float32).reshape(self.N)
+        self.mu.assign(a)
     def set_cd(self, v): self.cd.assign(np.array([float(v)], np.float32))
 
     def rollout(self):
