@@ -25,11 +25,13 @@ sys.path.insert(0, "/home/nas5/jooyeolyun/repos/simulation-assestization")
 from src.data.assets import load_asset                                  # noqa: E402
 from src.sim.deformable import (build_cloth_model, build_soft_model,     # noqa: E402
                                 cloth_grid_from_asset, tets_from_mesh)
+from src.sim.diff_splat import ground_penalty                            # noqa: E402
 
 FPS = 60.0
 
 
-def simulate(model, n_frames, substeps, bound=3.0):
+def simulate(model, n_frames, substeps, bound=3.0, ground_z=None,
+             gk=2.0e3, gcd=2.0, gmu=0.4):
     """SolverSemiImplicit: VBD returns exactly-zero gradients in newton 1.4.0.
 
     DIVERGENCE is checked against a spatial bound, not just isfinite. An explicit solver run
@@ -43,11 +45,20 @@ def simulate(model, n_frames, substeps, bound=3.0):
     dt = 1.0 / (FPS * substeps)
     out = [st0.particle_q.numpy().copy()]
     c0 = out[0].mean(0)
+    # Ground as an explicit particle PENALTY, not model.collide(). newton's rigid contact
+    # path is not what a particle sheet needs here -- with add_ground_plane + collide() every
+    # stiffness diverged, while the same model with contacts=None is stable. diff_splat.py
+    # already solved exactly this (cloth landing on a table) with a penalty kernel, so reuse
+    # it rather than fight the contact pipeline.
     for _ in range(n_frames):
         for _ in range(substeps):
             st0.clear_forces()
-            contacts = model.collide(st0)
-            solver.step(st0, st1, control, contacts, dt)
+            if ground_z is not None:
+                wp.launch(ground_penalty, model.particle_count,
+                          inputs=[st0.particle_q, st0.particle_qd, float(ground_z),
+                                  float(gk), float(gcd), float(gmu)],
+                          outputs=[st0.particle_f])
+            solver.step(st0, st1, control, None, dt)
             st0, st1 = st1, st0
         q = st0.particle_q.numpy()
         if not np.isfinite(q).all() or np.abs(q - c0).max() > bound:
@@ -56,11 +67,16 @@ def simulate(model, n_frames, substeps, bound=3.0):
     return np.stack(out)
 
 
-def cloth_run(tri_ke, grid, n_frames=60, substeps=128):
+def cloth_run(tri_ke, grid, n_frames=60, substeps=32):
     nx, ny, cell = grid
-    m = build_cloth_model(nx, ny, cell, mass=0.004, tri_ke=tri_ke, tri_kd=2.0,
-                          edge_ke=tri_ke * 1.0e-3, pos=(0.0, 0.0, 0.40))
-    Q = simulate(m, n_frames, substeps)
+    # configs/flag.yaml VERBATIM apart from tri_ke, which is the swept parameter. Deviating
+    # from it on mass (0.05 -> 0.02) and cell (0.05 -> 0.03) diverged at substep 22 with no
+    # ground in the scene at all; the validated point is validated as a SET, and the stability
+    # criterion in that config couples the three (dt*sqrt(ke/m) < 0.3 and kd/m*dt << 1).
+    m = build_cloth_model(nx, ny, cell, mass=0.05, tri_ke=tri_ke, tri_kd=10.0,
+                          edge_ke=10.0, edge_kd=0.1,
+                          pos=(0.0, 0.0, 0.40), radius=0.01)
+    Q = simulate(m, n_frames, substeps, ground_z=0.0)
     if Q is None:
         return None
     end = Q[-1]
@@ -70,10 +86,10 @@ def cloth_run(tri_ke, grid, n_frames=60, substeps=128):
             "height_cm": float((end[:, 2].max() - end[:, 2].min()) * 100)}
 
 
-def soft_run(k_mu, V, T, n_frames=45, substeps=256):
+def soft_run(k_mu, V, T, n_frames=45, substeps=64):
     m = build_soft_model(V, T, density=150.0, k_mu=k_mu, k_lambda=k_mu * 2.0,
-                         k_damp=1.0, pos=(0.0, 0.0, 0.13))
-    Q = simulate(m, n_frames, substeps)
+                         k_damp=1.0, pos=(0.0, 0.0, 0.13), radius=0.006)
+    Q = simulate(m, n_frames, substeps, ground_z=0.0, gk=6.0e3)
     if Q is None:
         return None
     h = Q[:, :, 2].max(1) - Q[:, :, 2].min(1)      # body height per frame
@@ -88,13 +104,13 @@ def main():
     wp.init()
     res = {"cloth": [], "soft": []}
     with wp.ScopedDevice("cuda:0"):
-        CELL = 0.014
+        CELL = 0.050
         nx, ny, w, d = cloth_grid_from_asset(
             load_asset("cloth", "Provence_Bath_Towel_Royal_Blue"), cell=CELL)
         grid = (nx, ny, CELL)
         print(f"=== CLOTH DRAPE  (towel {w*100:.0f}x{d*100:.0f} cm -> {nx}x{ny} uniform grid)")
         print(f"  {'tri_ke':>9}{'spread cm':>11}{'footprint m2':>14}{'height cm':>11}")
-        for ke in [50.0, 150.0, 450.0, 1350.0, 4050.0]:
+        for ke in [6.0e2, 1.5e3, 5.0e3, 1.5e4, 4.0e4]:
             r = cloth_run(ke, grid)
             if r is None:
                 print(f"  {ke:>9.0f}   DIVERGED"); continue

@@ -36,46 +36,60 @@ a step ~600× finer than the mesh's overall scale suggests. Quadric decimation p
 regions as large triangles and keeps slivers along creases — it optimises for visual fidelity,
 which is the opposite of what a solver needs.
 
-## Two wrong diagnoses, recorded because they were confidently stated
+## The bug: `default_particle_radius`
 
-**"Mesh quality — 639x edge-length ratio."** True of the decimated scan, and it did motivate a
-real improvement (below), but it was not the cause: a clean 25x19 uniform grid with a single
-edge length diverges identically.
+`build_flag_model` sets `builder.default_particle_radius = 0.01`. I did not. That one line is
+the whole difference. Left unset, Newton's default is large enough that neighbouring particles
+of the same flat sheet overlap in the REST configuration, so the solver pushes them apart from
+the first substep.
 
-**"pymeshlab is needed for isotropic remeshing."** Reaching for a dependency instead of
-questioning the premise. No new dependency is needed, and the premise was wrong twice over --
-see below.
+Bisected in free fall with no ground and no contacts in the scene, where a rest-state cloth
+should translate exactly 1.23 m in 0.5 s:
 
-## The improvement that survives both
+| configuration | max travel |
+|---|---|
+| FlagSim values, radius 0.01 | **1.228 m** — correct |
+| same, radius unset | **253.7 m** |
+| same, my edge_kd 1e-4 | 1.228 m — harmless |
 
-`cloth_grid_from_asset` sizes a **uniform grid** from the scan's bounding box rather than
-simulating the scan's own triangles. Beyond the numerics, this is the physically correct
-choice: a scan is one **crumpled configuration frozen in place**, and a cloth's rest state is
-what sets the strain in every triangle. Feeding a crumpled snapshot as the rest shape bakes the
-folds into the zero-energy configuration, so the cloth can never drape -- it is already
-"relaxed" in the shape it was scanned in. The scan supplies dimensions and appearance; the
-simulation mesh should be regular, which is what `build_flag_model` has always done.
+Two earlier diagnoses were wrong and are recorded as such: the decimated scan's 639× edge-length
+ratio (a clean uniform grid diverged identically) and the claim that `pymeshlab` was needed for
+isotropic remeshing (no new dependency is involved).
 
-## Where the fault actually is
+## Second finding: flag.yaml is validated as a SET
 
-Isolation test, 25x19 grid, 64 substeps, 0.5 s:
+With the radius fixed, deviating from `configs/flag.yaml` on mass (0.05 → 0.02) and cell
+(0.05 → 0.03) still diverged at substep 22 with no ground present. The config's own comment
+gives the reason — stability couples the three: `dt·sqrt(ke/m) < 0.3` and `kd/m·dt << 1`.
+Changing one at a time is not safe; the point is validated jointly.
 
-| configuration | stable | max displacement |
+## Cloth: runs, reading is weak
+
+Towel 36×26 cm as a 7×5 uniform grid, `flag.yaml` verbatim apart from the swept `tri_ke`:
+
+| tri_ke | spread | height |
 |---|---|---|
-| no ground, `contacts=None` | no | **79.3 m** |
-| ground, `contacts=None` | no | 74.9 m |
-| ground, `model.collide()` | no | 90.5 m |
+| 600 | 19.04 cm | 0.00 cm |
+| 1500 | 19.04 cm | 0.00 cm |
+| 5000 | 19.04 cm | 0.00 cm |
+| 15000 | 16.08 cm | 6.81 cm |
+| 40000 | DIVERGED | |
 
-A flat cloth at its rest configuration has zero internal strain and, in free fall with no
-contacts, should simply translate 1.2 m in 0.5 s. It moves 79. So the fault is neither contact
-handling nor mesh quality but the **model construction itself** -- something in the
-`add_cloth_grid` parameters or the step loop is injecting energy from the first substep.
+**ρ(log tri_ke, spread) = −0.786**, and it converges — but the three softest values are
+identical, so the probe only discriminates at the stiff end. The likely cause is resolution: at
+cell 0.05 the towel is 7×5 cells, which cannot represent a fold. Going finer requires re-deriving
+a stable (mass, cell, ke, kd) point rather than changing cell alone.
 
-## Next step, concrete
+## Soft body: still diverges, 5/5
 
-`FlagSim` (`src/sim/rollout.py`) + `build_flag_model` (`src/sim/scene.py`) run this same solver
-on this same kind of grid and are known-good, with a working config at `configs/flag.yaml`.
-Diff the builder call and the step loop against them -- particularly the per-particle `mass`
-(0.004 kg here), `edge_ke`/`edge_kd` scaling, whether `b.color()` belongs before `finalize()`
-for `SolverSemiImplicit`, and the preallocated-state loop versus the two-state ping-pong used
-here. That is a direct comparison against working code, not an open-ended debug.
+Unresolved. The tetrahedralisation itself is verified (660 verts, 2070 tets, all positive
+volume), and the particle radius is now set, so the remaining suspect is the same one the cloth
+had — the tet material parameters need a validated stable point analogous to `flag.yaml`.
+`DiffSoft` (`src/sim/diff_soft.py`) has one: `k_mu=6000, lam_ratio=2.0, k_damp=10.0,
+density=800, substeps=64`, on a procedural cube. That is the set to copy verbatim next, exactly
+as `flag.yaml` was for cloth.
+
+## Status
+
+Nothing in the cloth row should be quoted as a stiffness measurement yet; it discriminates only
+between "limp" and "stiff". Soft body produces no reading at all.

@@ -107,24 +107,35 @@ def tets_from_mesh(asset_mesh, pitch, scale=1.0):
     return V, T
 
 
-def build_cloth_model(nx, ny, cell, mass, tri_ke, tri_kd, edge_ke, pos=(0, 0, 1.0)):
-    """Flat rest state, uniform cells -- one edge length, so one stable timestep."""
+def build_cloth_model(nx, ny, cell, mass, tri_ke, tri_kd, edge_ke, edge_kd=0.1,
+                      pos=(0, 0, 1.0), radius=0.01):
+    """Flat rest state, uniform cells -- one edge length, so one stable timestep.
+
+    `default_particle_radius` is NOT optional. Left unset, Newton's default is large enough
+    that neighbouring particles of the same sheet overlap in the rest configuration, so the
+    solver pushes them apart from the first substep and the cloth explodes -- measured 253.7 m
+    of travel in 0.5 s of free fall, against the 1.228 m of actual free fall, with no ground
+    and no contacts in the scene at all. `build_flag_model` sets it; that one line is the
+    entire difference between a cloth that works and one that does not.
+    """
     b = newton.ModelBuilder()
+    b.default_particle_radius = float(radius)
     b.add_cloth_grid(pos=wp.vec3(*pos), rot=wp.quat_identity(), vel=wp.vec3(0.0, 0.0, 0.0),
                      dim_x=int(nx), dim_y=int(ny), cell_x=float(cell), cell_y=float(cell),
                      mass=float(mass), tri_ke=float(tri_ke), tri_ka=float(tri_ke),
-                     tri_kd=float(tri_kd), edge_ke=float(edge_ke), edge_kd=1.0e-4)
-    b.add_ground_plane()
+                     tri_kd=float(tri_kd), edge_ke=float(edge_ke),
+                     edge_kd=float(edge_kd))
     b.color()
     return b.finalize()
 
 
-def build_soft_model(V, T, density, k_mu, k_lambda, k_damp, pos=(0, 0, 1.0)):
+def build_soft_model(V, T, density, k_mu, k_lambda, k_damp, pos=(0, 0, 1.0), radius=0.01):
     b = newton.ModelBuilder()
+    b.default_particle_radius = float(radius)      # same trap as cloth -- see build_cloth_model
     mesh = newton.TetMesh(vertices=[wp.vec3(*v) for v in np.asarray(V, np.float32)],
                           tet_indices=np.asarray(T, np.int32).flatten().tolist())
     b.add_soft_mesh(pos=wp.vec3(*pos), rot=wp.quat_identity(), scale=1.0,
                     vel=wp.vec3(0.0, 0.0, 0.0), mesh=mesh, density=float(density),
                     k_mu=float(k_mu), k_lambda=float(k_lambda), k_damp=float(k_damp))
-    b.add_ground_plane()
+    b.color()
     return b.finalize()
