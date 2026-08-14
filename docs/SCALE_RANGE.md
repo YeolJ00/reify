@@ -81,19 +81,57 @@ Friction is now monotone in μ at every scale, which is what an optimiser needs:
 | 0.40 | 21.8° | 21.5 | 23.6 | 26.9 | 28.0 | 32.4 |
 | 0.70 | 35.0° | 29.1 | 33.5 | 36.7 | 34.5 | none |
 
-## Residual: the ramp rate is still fixed
+## Ramp rate: fixed by running the sweep in dimensionless time
 
-A ~+10° monotone drift from 0.15x to 6x remains, and it has a predicted cause. The ramp
-sweeps 4°→40° in a fixed 1.42 s of simulated time at every scale. A body sliding from rest
-covers the 5%-of-size threshold in `t ∝ √L`, so **larger objects take longer to trip the
-detector and the ramp has advanced further by then** — exactly the observed sign and
-monotonicity. The fix is to scale the ramp duration as `√L` (or extrapolate onset to zero
-threshold). Not yet implemented.
+The ramp swept 4°→40° in a fixed 1.42 s at every scale, but a body sliding from rest trips
+a fraction-of-size threshold in `t ∝ √L`. Larger objects took longer to trigger, so the
+ramp had advanced further — a monotone upward drift with size.
+
+Fix: `dt ∝ √s` with frames and substeps unchanged, so the sweep covers the same range in
+the same *dimensionless* time `t/√(L/g)` at every scale. This also puts `dt` on the natural
+timescale, so contact stability is preserved rather than traded away.
+
+| scale | fixed rate | rate ∝ 1/√L |
+|---|---|---|
+| 0.15 | 21.5° | 24.7° |
+| 0.35 | 23.6° | 25.8° |
+| 1.00 | 26.9° | 26.9° |
+| 2.50 | 28.0° | 26.9° |
+| 6.00 | 32.4° | 28.0° |
+
+**Spread 10.9° → 3.3°.** Combined with the cover fix: **27.3° → 3.3°.**
+
+## Rejected: extrapolating onset to a zero threshold
+
+The residual was a near-constant **+4–5° bias** — the detector fires only after the body
+has moved 5% of its size, so it always reads late. The obvious correction is to measure at
+several thresholds and extrapolate to zero (`d ∝ t²`, so fit against `√frac`).
+
+**This made things worse: mean error 4.7° → 17.2°.** At small thresholds the detector trips
+on creep rather than slip — μ=0.70 reads 5.1° at a 5‰ threshold against a true 35°. The fit
+then extrapolates through noise. Do not use it; the small-threshold points are not
+measurements of the same quantity.
+
+## Final: one constant offset
+
+The bias is stable enough to calibrate with a single number, **3.97°**:
+
+| μ | true | raw mean | corrected | error | spread across 40x scale |
+|---|---|---|---|---|---|
+| 0.20 | 11.3° | 16.7° | 12.7° | +1.4° | 1.1° |
+| 0.30 | 16.7° | 21.9° | 17.9° | +1.2° | 1.0° |
+| 0.40 | 21.8° | 26.5° | 22.5° | +0.7° | 3.3° |
+| 0.55 | 28.8° | 32.8° | 28.9° | +0.0° | 4.3° |
+| 0.70 | 35.0° | 35.6° | 31.6° | −3.4° | 2.2° |
+
+**Mean |error| 1.34° across 5 μ × 5 scales spanning 3 cm to 116 cm.** Monotone in μ at
+every scale. The one weak point is μ = 0.70, where the reading saturates.
 
 ## Working range
 
-**Roughly 0.15x–2.5x (3–50 cm) for a monotone friction readout**, best near 1x. Beyond
-that the residual ramp-rate drift dominates and 6x loses the high-μ case entirely.
+**3 cm – 116 cm (the full 40x range tested), μ ∈ [0.2, 0.55].** Slip angle recovers
+`atan(μ)` to ~1.3° after a single constant offset. Above μ ≈ 0.7 the probe compresses and
+should not be trusted.
 
 The scene is still one fixed 0.706 m table; a 116 cm bowl on it is not a sensible
-experiment regardless of solver behaviour.
+*experiment* even though the solver now handles it correctly.
