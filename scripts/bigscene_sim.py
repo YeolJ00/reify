@@ -101,12 +101,26 @@ def main():
     print(f"layout: {len(A)} objects, depth {totd:.3f} m on a {TABLE_W:.2f}x{TABLE_D:.2f} table")
     assert totd <= TABLE_D - 2 * MARGIN, f"overflows depth by {totd - (TABLE_D - 2*MARGIN):.3f}"
 
-    names, pos, scales, mus, keys, masses, cds = [], [], [], [], [], [], []
+    names, pos, scales, mus, keys, masses, cds, coms = [], [], [], [], [], [], [], []
     for k, v in A.items():
         s = v["scale"]
         tm = decimate(load_asset(v["cat"], k), 400).copy(); tm.apply_scale(s)
         ctr, rad = sphere_cover(tm, PITCH * s)
         z = GZ + rad - float(ctr[:, 2].min()) + 0.002 * s
+        # sphere_cover COM-centres its output (centers -= mesh.vertices.mean(0)), so the
+        # body's `pos` tracks that vertex mean, NOT the mesh origin. Blender places a mesh
+        # by its origin, so the render needs pos - R@C or the object floats above the table
+        # by |C| -- 116 mm for the brass pot, which is what the empty gap under the objects
+        # was. Capture C here in the SAME frame ProbeScene builds its cover in.
+        C = np.asarray(tm.vertices, float).mean(0)
+        # The body rests on the sphere COVER, whose lowest point sits below the mesh
+        # surface: voxel centres are interior (>= pitch/2 inside) and the sphere radius
+        # then extends further out. So the visible mesh hangs above the table by that
+        # overhang -- 15.5 mm on the baseball at a 20 mm pitch. Shift the rendered mesh
+        # down by it so what you SEE rests on the table the simulator is using. This is a
+        # render-side alignment of two different surfaces, not a change to the physics.
+        oh = float((ctr[:, 2].min() - rad) - (np.asarray(tm.vertices, float)[:, 2].min() - C[2]))
+        coms.append(C + np.array([0.0, 0.0, -oh]))
         th = THETA[k]
         names.append(f"{v['cat']}/{k}"); pos.append([xy[k][0], xy[k][1], z])
         scales.append(s); mus.append(th["mu"]); keys.append(k)
@@ -173,8 +187,10 @@ def main():
             Ry = np.array([[np.cos(th), 0.0, np.sin(th)],
                            [0.0, 1.0, 0.0],
                            [-np.sin(th), 0.0, np.cos(th)]])
-            loc = PIVOT + Ry @ (np.asarray(P[t, i], float) - PIVOT)
-            mat = Ry @ quat_to_mat(Q[t, i])
+            Rb = quat_to_mat(Q[t, i])
+            origin = np.asarray(P[t, i], float) - Rb @ coms[i]   # mesh origin, not the COM
+            loc = PIVOT + Ry @ (origin - PIVOT)
+            mat = Ry @ Rb
             seq.append({"loc": [float(v) for v in loc],
                         "mat": [[float(v) for v in r] for r in mat]})
         S["objects"][k] = seq
