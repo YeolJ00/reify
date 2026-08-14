@@ -52,8 +52,9 @@ def world_spheres(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
 @wp.kernel
 def ground_contact_n(world: wp.array(dtype=wp.vec3), radius: float, body: wp.array(dtype=int),
                      pos: wp.array(dtype=wp.vec3), vlin: wp.array(dtype=wp.vec3),
-                     vang: wp.array(dtype=wp.vec3), ground_z: float, k: float,
+                     vang: wp.array(dtype=wp.vec3), ground_z: float, k: wp.array(dtype=float),
                      cd: wp.array(dtype=float), mu: wp.array(dtype=float),
+                     ground_mu: float, ground_cd: float,
                      force: wp.array(dtype=wp.vec3), torque: wp.array(dtype=wp.vec3)):
     s = wp.tid()
     b = body[s]
@@ -66,9 +67,19 @@ def ground_contact_n(world: wp.array(dtype=wp.vec3), radius: float, body: wp.arr
         # clamped at zero to avoid adhesion, and that clamp is what gave our contact a
         # restitution that RISES with impact speed (+0.058 per m/s measured on a control)
         # where a spring-damper should be velocity-independent and real materials fall.
-        fn = wp.max(k * pen - HC * cd[0] * pen * vc[2] - (1.0 - HC) * cd[0] * vc[2], 0.0)
+        # THE TABLE IS AN OBJECT. A contact is between two materials, so the pair
+        # coefficients combine the body's and the table's -- geometric mean, the usual
+        # convention. Treating the table as a parameterless boundary silently attributed
+        # all of the surface's friction and damping to whatever was sitting on it.
+        cde = cd[b]
+        mue = mu[b]
+        if ground_cd > 0.0:
+            cde = wp.sqrt(cd[b] * ground_cd)
+        if ground_mu > 0.0:
+            mue = wp.sqrt(mu[b] * ground_mu)
+        fn = wp.max(k[b] * pen - HC * cde * pen * vc[2] - (1.0 - HC) * cde * vc[2], 0.0)
         vt = wp.vec3(vc[0], vc[1], 0.0)
-        ft = -mu[b] * fn * vt / (wp.length(vt) + V_EPS)
+        ft = -mue * fn * vt / (wp.length(vt) + V_EPS)
         f = wp.vec3(ft[0], ft[1], fn)
         wp.atomic_add(force, b, f)
         wp.atomic_add(torque, b, wp.cross(r, f))
@@ -78,7 +89,7 @@ def ground_contact_n(world: wp.array(dtype=wp.vec3), radius: float, body: wp.arr
 def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
                    body: wp.array(dtype=int), pos: wp.array(dtype=wp.vec3),
                    vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
-                   k: float, cd: wp.array(dtype=float), mu: wp.array(dtype=float),
+                   k: wp.array(dtype=float), cd: wp.array(dtype=float), mu: wp.array(dtype=float),
                    force: wp.array(dtype=wp.vec3), torque: wp.array(dtype=wp.vec3)):
     t = wp.tid()
     i = t / nS
@@ -99,8 +110,10 @@ def pair_contact_n(nS: int, world: wp.array(dtype=wp.vec3), radius: float,
         rj = cpt - pos[bj]
         vrel = (vlin[bi] + wp.cross(vang[bi], ri)) - (vlin[bj] + wp.cross(vang[bj], rj))
         vn = wp.dot(vrel, n)
-        fn = wp.max(k * overlap - HC * cd[0] * overlap * vn
-                    - (1.0 - HC) * cd[0] * vn, 0.0)
+        cde = wp.sqrt(cd[bi] * cd[bj])
+        kij = k[bi] * k[bj] / (k[bi] + k[bj])
+        fn = wp.max(kij * overlap - HC * cde * overlap * vn
+                    - (1.0 - HC) * cde * vn, 0.0)
         vt = vrel - vn * n
         # two bodies with different friction: the pair coefficient is the geometric mean,
         # the usual convention and symmetric in i/j so the contact stays Newton's-third-law
@@ -116,7 +129,8 @@ class ProbeScene:
     def __init__(self, names, pos0, vel0, ang0=None, com_offset=None,
                  densities=(600.0, 600.0), ground_z=0.706,
                  pitch=0.020, dt=2.0e-4, n_steps=1400, k=4000.0, cd=8.0, mu=0.5,
-                 gravity=(0.0, 0.0, -9.81), ball_radius=None, mesh_scale=None):
+                 gravity=(0.0, 0.0, -9.81), ball_radius=None, mesh_scale=None,
+                 ground_mu=None, ground_cd=None):
         # ball_radius: model each body as a single solid sphere instead of a scanned mesh
         # (used for the generated-video probes, where the objects really are balls)
         self.N = len(names); self.dt, self.n_steps = dt, n_steps
@@ -129,7 +143,14 @@ class ProbeScene:
         # it was dropped from, which no passive contact can do. A parameter search that
         # ranges past this bound is searching a region where the answer is an artefact.
         self._cd_limit = None
-        self.k, self.ground_z = float(k), float(ground_z)
+        # PER-BODY contact stiffness. With one global k, penetration is m*g/k, so a scene
+        # spanning 0.22-5.09 kg penetrates over a 23x range: the light bodies sit on a
+        # spring far too stiff for them and get launched, the heavy ones sink. Setting
+        # k_i proportional to m_i makes penetration a fixed fraction of object size AND
+        # makes the contact frequency sqrt(k/m) mass-independent, so one dt is stable for
+        # every body. Pass a scalar to keep the old uniform behaviour.
+        self.ground_z = float(ground_z)
+        self._k_in = k
         self.gravity = wp.vec3(*gravity)
         # TIME-VARYING GRAVITY. A tilt ramp used to be run as a sequence of separate
         # scenes, one per angle, carrying position and linear velocity forward. But
@@ -140,13 +161,13 @@ class ProbeScene:
         # single unbroken graph.
         self.gravity_seq = None
 
-        cl, body, vols = [], [], []
+        cl, body, vols, sizes = [], [], [], []
         if ball_radius is not None:
             R = float(ball_radius)
             self.radius = R
             for bi in range(self.N):
                 cl.append(np.zeros((1, 3), np.float32)); body.append(np.array([bi], np.int32))
-                vols.append(4.0 / 3.0 * np.pi * R ** 3)
+                vols.append(4.0 / 3.0 * np.pi * R ** 3); sizes.append(2.0 * R)
         else:
             for bi, name in enumerate(names):
                 cat, _, nm = name.rpartition("/")
@@ -161,6 +182,7 @@ class ProbeScene:
                 self.radius = float(r)
                 cl.append(centers); body.append(np.full(len(centers), bi, np.int32))
                 vols.append(float(abs(tm.volume)) if tm.is_watertight else len(centers) * pitch_b ** 3)
+                sizes.append(float(max(tm.extents)))
         # CENTRE OF MASS. The integrator advances `pos` as the body's centre of mass and
         # applies contact at pos + R @ center_local, so displacing the sphere cover
         # relative to the origin IS a CoM offset -- shifting centres by -c puts the CoM at
@@ -196,7 +218,15 @@ class ProbeScene:
         self.mu = wp.array(np.full(self.N, float(mu), np.float32)
                            if np.isscalar(mu) else
                            np.asarray(mu, np.float32).reshape(self.N), dtype=float)
-        self.cd = wp.array([float(cd)], dtype=float)
+        # PER-BODY damping, length N -- same argument as friction. A scene of 14 objects
+        # with one restitution is not 14 objects, it is one material wearing 14 shapes.
+        self.cd = wp.array(np.full(self.N, float(cd), np.float32)
+                           if np.isscalar(cd) else
+                           np.asarray(cd, np.float32).reshape(self.N), dtype=float)
+        # The table's own material. Defaults reproduce the old behaviour exactly:
+        # sqrt(x*x) == x, so an unset table is transparent to existing callers.
+        self._gmu = float(ground_mu) if ground_mu is not None else None
+        self._gcd = float(ground_cd) if ground_cd is not None else None
         self.mass = wp.zeros(self.N, dtype=float); self.inv_mass = wp.zeros(self.N, dtype=float)
         self.G = wp.zeros(self.N, dtype=wp.mat33); self.Ginv = wp.zeros(self.N, dtype=wp.mat33)
         Gs, Gis = [], []
@@ -207,7 +237,16 @@ class ProbeScene:
                 G = unit_mass_inertia(np.concatenate(cl)[np.concatenate(body) == bi])
             Gs.append(G.astype(np.float32)); Gis.append(np.linalg.inv(G).astype(np.float32))
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
+        self._sizes = sizes
         self.set_densities(densities)
+        if np.isscalar(self._k_in):
+            karr = np.full(self.N, float(self._k_in), np.float32)
+        elif self._k_in is None:
+            m = self.mass.numpy()
+            karr = (m * 9.81 / (0.005 * np.asarray(self._sizes))).astype(np.float32)
+        else:
+            karr = np.asarray(self._k_in, np.float32).reshape(self.N)
+        self.k = wp.array(karr, dtype=float)
 
         self.pos0 = np.asarray(pos0, np.float32)
         self.vlin0 = np.asarray(vel0, np.float32)
@@ -225,17 +264,21 @@ class ProbeScene:
             # number and the comparison silently measured nothing.
             base = 0.5 * (2.0 * m_min / self.dt)
             if HC > 0.0:
-                pen_ref = max(m_min * 9.81 / max(float(k), 1e-9), 1e-6)
+                # k may now be per-body or derived; the stability bound cares about the
+                # SOFTEST contact, which gives the deepest penetration.
+                k_ref = float(np.min(self.k.numpy()))
+                pen_ref = max(m_min * 9.81 / max(k_ref, 1e-9), 1e-6)
                 base = base / pen_ref
             self._cd_limit = base
-            if cd > self._cd_limit:
+            cd_max = float(np.max(self.cd.numpy())) if hasattr(self, "cd") else float(cd)
+            if cd_max > self._cd_limit:
                 import warnings
                 warnings.warn(
-                    f"cd={cd:.1f} exceeds the explicit-integration stability bound "
+                    f"cd={cd_max:.1f} exceeds the explicit-integration stability bound "
                     f"2m/dt={self._cd_limit:.0f}; contact will create energy. Clamping.",
                     RuntimeWarning)
                 cd = self._cd_limit * 0.9
-                self.cd = wp.array([float(cd)], dtype=float)   # stays a warp array
+                self.cd = wp.array(np.full(self.N, float(cd), np.float32), dtype=float)
         self.pos, self.rot = mk(wp.vec3), mk(wp.quat)
         self.vlin, self.vang = mk(wp.vec3), mk(wp.vec3)
         self.force, self.torque = wp.zeros(self.N, dtype=wp.vec3), wp.zeros(self.N, dtype=wp.vec3)
@@ -245,12 +288,27 @@ class ProbeScene:
         m = np.asarray(dens, np.float64) * self.volumes
         self.mass.assign(m.astype(np.float32)); self.inv_mass.assign((1.0 / m).astype(np.float32))
 
+    def rebuild_stiffness(self):
+        """Recompute derived per-body k after masses change (k=None mode)."""
+        if self._k_in is None:
+            m = self.mass.numpy()
+            self.k.assign((m * 9.81 / (0.005 * np.asarray(self._sizes))).astype(np.float32))
+
     def set_mu(self, v):
         """Scalar (all bodies) or per-body sequence of length N."""
         a = np.full(self.N, float(v), np.float32) if np.isscalar(v) else \
             np.asarray(v, np.float32).reshape(self.N)
         self.mu.assign(a)
-    def set_cd(self, v): self.cd.assign(np.array([float(v)], np.float32))
+    def set_cd(self, v):
+        """Scalar (all bodies) or per-body sequence of length N."""
+        a = np.full(self.N, float(v), np.float32) if np.isscalar(v) else \
+            np.asarray(v, np.float32).reshape(self.N)
+        self.cd.assign(a)
+
+    def set_ground(self, mu=None, cd=None):
+        """The table's own material. None leaves that coefficient uncombined."""
+        if mu is not None: self._gmu = float(mu)
+        if cd is not None: self._gcd = float(cd)
 
     def rollout(self):
         self.pos[0].assign(self.pos0)
@@ -265,7 +323,10 @@ class ProbeScene:
                       inputs=[self.pos[t], self.rot[t], self.center_local, self.body], outputs=[self.world])
             wp.launch(ground_contact_n, self.nS,
                       inputs=[self.world, self.radius, self.body, self.pos[t], self.vlin[t], self.vang[t],
-                              self.ground_z, self.k, self.cd, self.mu], outputs=[self.force, self.torque])
+                              self.ground_z, self.k, self.cd, self.mu,
+                              -1.0 if self._gmu is None else self._gmu,
+                              -1.0 if self._gcd is None else self._gcd],
+                      outputs=[self.force, self.torque])
             if self.N > 1:
                 wp.launch(pair_contact_n, self.nS * self.nS,
                           inputs=[self.nS, self.world, self.radius, self.body, self.pos[t],

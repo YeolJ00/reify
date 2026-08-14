@@ -35,17 +35,33 @@ K_CONTACT, PITCH, DENSITY = 2500.0, 0.020, 600.0
 TABLE_W, TABLE_D = 1.134 * 1.40, 0.706 * 1.40      # matches TABLE_SX/SY in the render
 MARGIN, GAP = 0.06, 0.045
 
-# per-object friction: what we would be fitting. Spread across a plausible range so the
-# scene shows a RANGE of behaviours rather than 14 objects doing the same thing.
-MU = {
-    "wooden_bowl_01": 0.22, "Pony_C_Clamp_1440": 0.18, "Weisshai_Great_White_Shark": 0.30,
-    "brass_pot_01": 0.26, "Threshold_Porcelain_Teapot_White": 0.24,
-    "cardboard_box_01": 0.45, "Poppin_File_Sorter_Blue": 0.38,
-    "ceramic_vase_01": 0.35, "book_encyclopedia_set_01": 0.40,
-    "rubber_duck_toy": 0.55, "Great_Dinos_Triceratops_Toy": 0.42,
-    "Schleich_Lion_Action_Figure": 0.42, "baseball_01": 0.32, "food_apple_01": 0.34,
+# EVERY object gets its own full parameter set. Sharing a density or a damping across a
+# scene is the same mistake as sharing a friction: it makes 14 objects into one material
+# wearing 14 shapes. Densities are EFFECTIVE (mass / mesh volume) because these meshes are
+# not watertight and most of these objects are hollow -- a brass pot is not a lump of brass.
+#   mu  friction against the table
+#   rho effective density, kg/m^3, chosen so implied mass matches the real object
+#   cd  contact damping; low = hard and ringing, high = dead thud
+THETA = {
+    "Pony_C_Clamp_1440":               dict(mu=0.18, mass=1.10, cd=1000),   # steel
+    "wooden_bowl_01":                  dict(mu=0.22, mass=0.40,  cd=2500),   # turned wood
+    "Threshold_Porcelain_Teapot_White":dict(mu=0.24, mass=0.70, cd=1200),  # porcelain, hollow
+    "brass_pot_01":                    dict(mu=0.26, mass=1.10, cd=1500),   # brass, hollow
+    "Weisshai_Great_White_Shark":      dict(mu=0.30, mass=0.30,  cd=2000),   # hollow plastic
+    "baseball_01":                     dict(mu=0.32, mass=0.145,  cd=2000),   # cork + leather
+    "food_apple_01":                   dict(mu=0.34, mass=0.18,  cd=5000),   # dense, dead
+    "ceramic_vase_01":                 dict(mu=0.35, mass=0.90, cd=1200),  # ceramic, hollow
+    "Poppin_File_Sorter_Blue":         dict(mu=0.38, mass=0.35,  cd=2200),   # thin plastic
+    "book_encyclopedia_set_01":        dict(mu=0.40, mass=2.20,  cd=8000),   # paper, very dead
+    "Great_Dinos_Triceratops_Toy":     dict(mu=0.42, mass=0.09,  cd=2500),   # solid plastic
+    "Schleich_Lion_Action_Figure":     dict(mu=0.42, mass=0.12, cd=2500),   # solid PVC
+    "cardboard_box_01":                dict(mu=0.45, mass=0.55,  cd=9000),   # mostly air
+    "rubber_duck_toy":                 dict(mu=0.55, mass=0.10,  cd=1200),   # hollow rubber
 }
-
+# THE TABLE IS AN OBJECT TOO. Its surface material enters every ground contact; the pair
+# coefficient is the geometric mean. Leaving it out attributed the table's friction and
+# damping to whatever happened to be resting on it.
+TABLE = dict(mu=0.45, cd=3000)   # varnished wood
 
 def quat_to_mat(q):
     x, y, z, w = [float(v) for v in q]
@@ -85,14 +101,16 @@ def main():
     print(f"layout: {len(A)} objects, depth {totd:.3f} m on a {TABLE_W:.2f}x{TABLE_D:.2f} table")
     assert totd <= TABLE_D - 2 * MARGIN, f"overflows depth by {totd - (TABLE_D - 2*MARGIN):.3f}"
 
-    names, pos, scales, mus, keys = [], [], [], [], []
+    names, pos, scales, mus, keys, masses, cds = [], [], [], [], [], [], []
     for k, v in A.items():
         s = v["scale"]
         tm = decimate(load_asset(v["cat"], k), 400).copy(); tm.apply_scale(s)
         ctr, rad = sphere_cover(tm, PITCH * s)
         z = GZ + rad - float(ctr[:, 2].min()) + 0.002 * s
+        th = THETA[k]
         names.append(f"{v['cat']}/{k}"); pos.append([xy[k][0], xy[k][1], z])
-        scales.append(s); mus.append(MU.get(k, 0.35)); keys.append(k)
+        scales.append(s); mus.append(th["mu"]); keys.append(k)
+        masses.append(th["mass"]); cds.append(th["cd"])
 
     # ONE scene, per-body friction: the objects genuinely collide with each other, and
     # each still slides at its own angle. Simulating them separately and compositing would
@@ -100,10 +118,13 @@ def main():
     onsets = {}
     with wp.ScopedDevice("cuda:0"):
         sn = ProbeScene(names, pos, [[0., 0., 0.]] * len(names),
-                        densities=tuple([DENSITY] * len(names)), ground_z=GZ,
+                        densities=tuple([600.0] * len(names)), ground_z=GZ,
                         dt=1.0 / (FPS * SUBSTEPS), n_steps=NF * SUBSTEPS,
-                        k=K_CONTACT, cd=3000.0, mu=mus,
-                        mesh_scale=scales, pitch=PITCH)
+                        k=K_CONTACT, cd=cds, mu=mus,
+                        mesh_scale=scales, pitch=PITCH,
+                        ground_mu=TABLE["mu"], ground_cd=TABLE["cd"])
+        # back-solve density from the TARGET mass so the physics gets the real mass
+        sn.set_densities(np.asarray(masses) / np.asarray(sn.volumes))
         sn.gravity_seq = ramp_gravity_seq(DEG0, DEG1, NF, SUBSTEPS, SETTLE)
         sn.rollout()
         P, Q = sn.positions(SUBSTEPS)[:NF], sn.rotations(SUBSTEPS)[:NF]
@@ -112,13 +133,17 @@ def main():
         for i, k in enumerate(keys):
             size = float(max(load_asset(A[k]["cat"], k).extents) * scales[i])
             o = onset_angle(P[:, i, :2], DEG0, DEG1, NF, SETTLE, size)
-            onsets[k] = {"mu": float(mus[i]), "onset_deg": o,
-                         "true_slip_deg": float(np.rad2deg(np.arctan(mus[i]))),
+            mu_eff = float(np.sqrt(mus[i] * TABLE["mu"]))
+            onsets[k] = {"mu": float(mus[i]), "rho": float(masses[i] / sn.volumes[i]), "cd": float(cds[i]),
+                         "mass_kg": float(sn.mass.numpy()[i]),
+                         "mu_eff": mu_eff, "onset_deg": o,
+                         "true_slip_deg": float(np.rad2deg(np.arctan(mu_eff))),
                          "probe": A[k]["probe"],
                          "travel_cm": float(np.linalg.norm(P[-1, i, :2] - P[SETTLE, i, :2]) * 100)}
         for k in sorted(onsets, key=lambda z: onsets[z]["mu"]):
             d = onsets[k]
-            print(f"  {k:<38} mu={d['mu']:.2f}  true {d['true_slip_deg']:>5.1f}d  "
+            print(f"  {k:<34} mu={d['mu']:.2f} rho={d['rho']:>5.0f} cd={d['cd']:>4.0f} "
+                  f"m={d['mass_kg']:>5.2f}kg  true {d['true_slip_deg']:>5.1f}d  "
                   f"onset {('%.1fd' % d['onset_deg']) if d['onset_deg'] else '  none':>7}  "
                   f"travel {d['travel_cm']:>6.1f} cm  [{d['probe']}]")
 
