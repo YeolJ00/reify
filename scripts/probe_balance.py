@@ -32,7 +32,7 @@ from src.sim.mesh_scene import MeshProbeScene          # noqa: E402
 GZ = 0.706
 FPS, SUBSTEPS, NF = 24.0, 60, 48
 BEAM_L, BEAM_W, BEAM_T = 0.60, 0.05, 0.012      # m
-PAN_R, PAN_T, PAN_RIM = 0.085, 0.008, 0.030
+PAN_R, PAN_T, PAN_RIM = 0.085, 0.022, 0.035
 ARM = 0.24                                       # pivot -> pan centre
 PIVOT_H = 0.14                                   # pivot height above the table
 
@@ -84,6 +84,12 @@ def run(m_obj, m_ref, obj_asset=None, obj_scale=1.0, n_frames=NF):
                        mesh_scale=[1.0, obj_scale, 1.0],
                        ground_mu=0.45, ground_cd=3000.0)
     s.calibrate_stiffness()
+    # The beam must be STIFF. calibrate_stiffness sizes k from the body's own length, and a
+    # 0.60 m beam gets a soft spring; in series with the weight (kij = ki*kj/(ki+kj)) that
+    # gave ~18 mm of penetration against an 8 mm pan floor, so every weight sank straight
+    # through its pan and landed on the table -- measured: weights settling at z=0.731, which
+    # is table height plus half a box. The beam then weighs nothing and its angle is noise.
+    kk = s.k.numpy(); kk[0] = 2.0e5; s.k.assign(kk)
     s.set_hinge(0, anchor=(0.0, 0.0, z_beam), axis=(0.0, 1.0, 0.0))
     s.rollout()
     Q = s.rotations(SUBSTEPS)[:, 0]          # beam quaternion per frame

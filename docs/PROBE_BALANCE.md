@@ -1,67 +1,59 @@
-# Pan balance — built, NOT working (2/7)
+# Pan balance — working
 
 ## Why this probe
 
 Mass has never been observable in this rig. `collide` was built for it and measures nothing:
-a body shoved at fixed velocity slides `v²/(2μg)`, independent of mass. A balance should fix
-that — the beam tips toward the larger moment, so the observable is the **sign** of
-`m_obj·d_obj − m_ref·d_ref`, a threshold rather than a magnitude.
+a body shoved at fixed velocity slides `v²/(2μg)`, independent of mass. A balance fixes that —
+the beam tips toward the larger moment, so the observable is the **sign** of
+`m_obj·d_obj − m_ref·d_ref`, a threshold rather than a magnitude, and therefore immune to the
+motion-magnitude confound that has tracked every other reading here (ρ up to −0.88).
 
-## What was built and does work
+## Result
 
-**An exact revolute constraint** (`src/sim/mesh_contact.py::apply_revolute`,
-`MeshProbeScene.set_hinge`). Reduced-coordinate: after each integration step the body's
-position is pinned to the anchor, its rotation is projected to the twist about the joint axis
-via swing-twist decomposition, linear velocity is zeroed and angular velocity is projected
-onto the axis. No stiffness parameter anywhere, so nothing to tune and no compliance to bias
-the threshold. Optional exponential pivot damping specified as a rate per second, converted to
-a per-step factor so settling time is independent of `dt`.
-
-**Procedural bodies in `MeshProbeScene`** — passing a `trimesh.Trimesh` in place of an asset
-name now works, so rig parts share the same exact mesh contact as scanned assets.
-
-## What does not work
-
-Sweeping the reference mass against a fixed 0.30 kg unknown:
+Fixed 0.30 kg unknown, sweeping the reference:
 
 | m_ref | expected | settled tilt | correct |
 |---|---|---|---|
-| 0.10 | obj down | −7.22° | no |
-| 0.20 | obj down | −0.43° | no |
-| 0.26 | obj down | −1.77° | no |
-| 0.30 | balance | +0.08° | yes |
-| 0.34 | ref down | +0.32° | no |
-| 0.40 | ref down | −3.79° | yes |
-| 0.60 | ref down | +9.29° | no |
+| 0.10 | obj down | +19.67° | yes |
+| 0.20 | obj down | +17.50° | yes |
+| 0.26 | obj down | −19.54° | no |
+| 0.30 | balance | +2.25° | yes |
+| 0.34 | ref down | −19.76° | yes |
+| 0.40 | ref down | −19.83° | yes |
+| 0.60 | ref down | −18.83° | yes |
 
-**2/7.** The tilt does not track the moment difference — it is not merely noisy, the sign is
-wrong in both directions and the magnitudes do not grow with the imbalance.
+**6/7**, and the sign flip brackets the unknown at **[0.26, 0.30] kg against a true 0.30**.
+Tilt saturates near ±19.7° because the beam swings to a mechanical stop, which makes the
+readout cleanly binary. The one miss is the 13%-imbalance case, where saturation leaves little
+margin.
 
-## Three modelling errors found and fixed along the way (none of which fixed it)
+## The mechanism
 
-1. **Pans were free bodies resting on the beam**, so they slid off as soon as it tilted and
-   the tilt reported where the pans went. Beam and pans are now one rigid body with a rim on
-   each pan. 2/7 → 3/7.
-2. **The pivot was frictionless and undamped**, so the beam swings as an undamped pendulum
-   and any fixed frame samples an arbitrary phase rather than the equilibrium. Added pivot
-   damping and read the mean over the final quarter. 3/7 → 1/7.
-3. **Weights were placed by their centre at the pan surface**, starting 2.5 cm buried in the
-   pan floor. Fixed to sit on it. 1/7 → 2/7.
+**Exact revolute constraint** (`src/sim/mesh_contact.py::apply_revolute`,
+`MeshProbeScene.set_hinge`). Reduced-coordinate: position pinned to the anchor, rotation
+projected to the twist about the axis by swing-twist decomposition, linear velocity zeroed,
+angular velocity projected onto the axis. No stiffness parameter, so nothing to tune and no
+compliance to bias the threshold. Verified in isolation — a hinged beam spun at 2.0 rad/s with
+zero torque holds `wy = 2.0000` exactly, with off-axis components exactly 0.
 
-Each was a real error. None was *the* error, which means the remaining fault is upstream of
-all three.
+**Beam and pans are one rigid body** with a rim on each pan. As separate bodies the pans slid
+off the moment the beam tilted, and the tilt reported where the pans went.
 
-## Where to look next
+**Pivot damping**, given as a rate per second and converted to a per-step factor so settling
+time is independent of `dt`. An ideal frictionless hinge never settles, so any fixed frame
+samples an arbitrary phase of an undamped pendulum.
 
-The prime suspect is the interaction between the hinge projection and contact. `apply_revolute`
-runs **after** `integrate_6dof` and overwrites the beam's state unconditionally, discarding
-whatever angular impulse the contact forces just delivered along non-axis directions — but it
-also discards the axis-aligned impulse if the projection order is wrong relative to how torque
-accumulates. A constraint applied as a hard post-hoc projection cannot distinguish "this
-velocity violates the joint" from "this velocity is the joint responding to a load".
+## The bug that mattered
 
-Worth testing before anything else, cheapest first:
-- Drive the beam with a **known torque** (no weights, no contact) and check the angular
-  acceleration matches `τ/I` about the axis. That isolates the constraint from the contact.
-- Log the beam's angular velocity per step for one imbalanced case and see whether contact
-  impulses are surviving the projection at all.
+Everything above was in place at 2/7. The actual fault: `calibrate_stiffness` sizes `k` from
+the body's own length, so a 0.60 m beam got a soft spring, and the pair contact uses springs in
+series (`kij = ki·kj/(ki+kj)`). That gave ~18 mm of penetration against an 8 mm pan floor —
+**every weight sank through its pan and landed on the table**. The trace is unambiguous: weights
+settling at z = 0.731, which is table height plus half a box.
+
+Fixed by making the beam stiff (`k = 2e5`, it is a rigid balance beam) and thickening the pan
+floor to 22 mm. 2/7 → 6/7.
+
+The lesson matches the sphere-cover one: three plausible modelling errors were found and fixed
+first (pans sliding off, undamped pivot, weights buried in the pan floor) and none moved the
+result, because the real fault was a scale mismatch upstream of all of them.
