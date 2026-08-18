@@ -3,94 +3,126 @@
 ## What this project is
 
 We make authored 3D assets **simulation-ready**: recover physical parameters **θ**
-(density, stiffness, damping, friction) so an asset moves the way its material should.
-Authored assets never physically existed — there is no footage and no ground truth — so a
-video-prior VLM supplies the only available definition of "moves right," and the
-simulator guarantees every output is physical.
+(mass, friction, restitution/damping, centre of mass, stiffness) so an asset moves the way
+its material should. Authored assets never physically existed — there is no footage and no
+ground truth — so a video-prior VLM (**Cosmos 3**) supplies the only available definition of
+"moves right," and the simulator guarantees every output is physical.
 
 **Core design: the video model is a judge, never a witness.** We never fit to generated
-pixels. The simulator (Newton/Warp) produces candidate rollouts under different θ; the
-judge (**Cosmos 3**) compares rendered candidates pairwise — "which moves more like
-{material}?" — and we optimize θ against its preference plus a prior that pins absolute
-scale. Hallucination cannot enter θ: the judge only ranks motions we manufactured.
+pixels. The simulator (Newton/Warp) produces candidate rollouts under different θ; the judge
+compares rendered candidates and we optimise θ against its preference plus a prior.
+Hallucination cannot enter θ: the judge only ranks motions we manufactured.
 
-## Non-negotiable design rules (each one bought with a failure)
+## Non-negotiable rules (each bought with a failure)
 
-1. **Pairwise only, never absolute scores.** Absolute yes/no scoring tracks motion
-   magnitude, not material (J2 failure). Offsets and prompt framing cancel only in
-   pairwise comparisons.
-2. **Fixed target-material appearance in renders.** Same look across all candidates of a
-   fit (only θ varies). Grey untextured sheets are out-of-distribution for the judge.
-3. **Any judge change invalidates calibration.** Model, version, thinking mode, prompt,
-   or render style changes ⇒ rerun the pairwise kill test (J2b) on the cached sweep
-   before trusting any fit. Cheap (minutes); skipping it is how we get silently wrong.
-4. **Watch the elite/final clips every run.** Known hacking ghost: "silk" = flappiest
-   clip, "tarp" = stillest. If results sort by motion magnitude, stop and report.
-5. **Run, don't assume.** Execute and show numbers/plots/clips before claiming success.
-   Verify Cosmos 3 and Newton/Warp APIs against current docs; trained-in knowledge is stale.
-6. **Deterministic, seeded, cached.** Renders and judge calls are the cost centers.
+1. **A probe must be shown to depend on its parameter before it is trusted.** Sweep the
+   parameter, report the correlation or threshold shift, *then* report a recovery. The
+   `collide` probe was built to recover mass and measures nothing — a body shoved at fixed
+   velocity slides `v²/(2μg)`, independent of mass. No amount of tuning could have fixed it.
+2. **Check against invariants, not reference values.** Scale invariance, energy conservation,
+   "does the reading respond to its input", two routes to one quantity agreeing. Every
+   diagnosis made this way held; every one made by comparing against a handbook number had to
+   be withdrawn. With no ground truth available, invariants are what we have.
+3. **Detect divergence by a spatial bound, not `isfinite`.** An explicit solver reaches 10⁵ m
+   long before `inf`. A cloth probe once reported ρ = −0.824 on a run that had exploded to a
+   455 m footprint.
+4. **Fixed target-material appearance in renders.** Magenta missing-texture surfaces are a
+   different material than the one being asked about, not merely ugly.
+5. **Any judge change invalidates calibration.** Model, version, thinking mode, prompt or
+   render style ⇒ rerun the pairwise kill test before trusting a fit.
+6. **Run, don't assume.** Print the trajectory before theorising about it. Five physically
+   sensible hypotheses about a scale bug failed in a row; looking at the numbers found it.
+7. **Deterministic, seeded, cached.** Renders and judge calls are the cost centres.
 
 ## State
 
-- Render harness, judge harness: **done**.
-- Absolute-score calibration (J2): **failed** → produced rules 1–2.
-- Pairwise magnitude-matched calibration (J2b): **passed** → gate open.
-- Multi-start CEM fit (J3): **running.** When it lands, review in this order: elite clips
-  (rule 4) → did starts land in the known-correct parameter region per material? →
-  per-parameter scatter across starts (agree = pinned, scatter = unconstrained) →
-  objective traces. One markdown report.
+### The simulator side is strong
 
-## Current direction: the G-track (gradient MAP, no new models)
+- **Exact mesh contact** (`src/sim/mesh_contact.py`, `mesh_scene.py`). Ground contact tests
+  mesh *vertices* against the plane — exact, since a linear function over a triangle is
+  minimised at a vertex. Body–body uses `wp.mesh_query_point_sign_normal` in the *other*
+  body's local frame, so each `wp.Mesh` is built once and never refitted. Replaced a sphere
+  cover that was 2.28 mm from the true surface.
+- **Per-body everything**: friction, mass, damping, contact stiffness. The **table is an
+  object** with its own μ and cd, combined by geometric mean.
+- Bounded tables, arbitrary initial orientation (`rot0`), exact reduced-coordinate revolute
+  joints with per-body damping, real-asset tetrahedralisation.
 
-CEM validated the objective but won't scale with objects × parameters. Gradients scale.
-The judge stays **frozen** — we backprop *through* it (autograd input-gradients, like
-classifier guidance), never train it or any surrogate.
+### Probes
 
-Objective: ascend  s(θ) + log p(θ)  where  s(θ) = pairwise logprob(A) − logprob(B),
-A = differentiable-render(sim(θ)), B = a frozen reference clip (current best; promote
-when decisively beaten — a ratchet). Averaged over both A/B orders. This keeps the
-calibration properties of rule 1 inside a differentiable scalar.
+| probe | reads | result | script |
+|---|---|---|---|
+| tilt | friction | 0.79° error, 3 cm–116 cm | `bigscene_sim.py`, `mesh_probes.py` |
+| balance | mass | **7/7**, brackets true mass | `probe_balance.py` |
+| bounce | damping | ρ = −0.995 | `probe_bounce_settle.py` |
+| settle | damping | ρ = +0.973 | `probe_bounce_settle.py` |
+| cloth drape | stiffness | ρ = −0.786, saturated at soft end | `probe_deformable.py` |
+| soft press | stiffness | **diverges** | `probe_deformable.py` |
 
-Chain and its three links: ∂s/∂V through the frozen judge (**requires thinking disabled
-for scoring** — a sampled trace has no gradient); ∂V/∂x needs a **differentiable
-renderer** (nvdiffrast or PyTorch3D, same fixed appearance — new code, known tech);
-∂x/∂θ via Warp autodiff (short windows, soft contact, clip/smooth through contact).
-Reasoning-mode judging returns only as periodic *verification* of trajectory elites —
-never as the driver.
+### The judge is the bottleneck, and is unchanged
 
-Why hacking risk is low: θ is a ~5-d physical bottleneck; gradient ascent can only move
-the clip along real cloth motions, not into adversarial pixel directions. Prior bounds +
-rule-4 inspection + periodic reasoning-mode verification are the tripwires.
+Approves 52.8% of clips at p > 0.90. Correlates −0.02 with density, −0.07 with damping,
+−0.25 with friction across a 10× sweep. Names materials 4/4 correctly but answers bounce
+counts 1–2 against a true 1–21. Three fits of the same object gave densities 244 / 188 / 356.
 
-**G-milestones (cheapest kill first, strictly in order):**
-- **G0** — rerun J2b in no-think pairwise mode (judge-mode change ⇒ rule 3). If it fails,
-  gradient MAP through this judge is dead on calibration grounds; stop and report.
-- **G1** — differentiable re-render of one cached rollout; check ∂s/∂pixels is finite/sane.
-- **G2** — end-to-end ∂s/∂θ on the single flag, verified against finite differences;
-  then one full gradient-MAP fit vs. the J3 CEM result on the same material, head-to-head.
-- **G3** — only after G2 wins or ties: multi-object scene, per-object masks and
-  factorized objectives; multi-start scatter as the uncertainty report throughout.
+**We can now manufacture excellent evidence and still cannot read it off a video.**
 
-## Later (do not build ahead)
+## Findings that changed the plan
 
-- Evidence seam: pluggable scorer registry; add cheap differentiable physics terms
-  (e.g. static equilibrium). Generative-video evidence (i2v probes, continuations)
-  returns here as extra terms if needed.
-- Scene scale + active probing: scatter/uncertainty decides which probe to run next.
+- **Magnitude observables are not inherently confounded.** The rule that only thresholds work
+  came from measurements taken *across objects*, where shape dominates (a drop probe gave
+  ρ = −0.186 over 14 objects). Holding object and excitation fixed and sweeping only the
+  parameter, the same observable gives −0.995. Magnitudes are fine *within* an object — which
+  is the regime per-object θ already puts us in.
+- **Solver parameter sets are validated jointly, not individually.** `configs/flag.yaml` is a
+  stable point; changing mass alone (0.05 → 0.02) diverges. Stability couples
+  `dt·sqrt(ke/m) < 0.3` and `kd/m·dt << 1`.
+- **`default_particle_radius` must be set** for cloth and soft bodies. Unset, neighbouring
+  particles overlap in the *rest* configuration and the body explodes — 253.7 m of travel in
+  free fall with no contacts, against a correct 1.228 m.
+- **A scan is a crumpled snapshot, not a rest state.** Cloth rest shape sets the strain in
+  every triangle, so simulating a scan's own triangles bakes the folds into the zero-energy
+  configuration and it can never drape. The scan gives dimensions and appearance; the sim
+  mesh should be a regular grid.
+- **Coarsening a timestep to speed a render changes results.** Balance went 7/7 → 4/7 when
+  substeps were cut 60 → 24 for a render pass.
+
+## Next, in order
+
+1. **Ask the judge a threshold question.** Several probes are now one-bit — *which pan went
+   down*, *did it slide at this angle*. That is a question a VLM plausibly answers, unlike
+   bounce counting, and the balance gives ground truth to score it against. Cheapest decisive
+   test available; do this before building anything else.
+2. **Fix the soft-body probe.** Copy `DiffSoft`'s validated set (`k_mu=6000, lam_ratio=2,
+   k_damp=10, density=800, substeps=64, radius = spacing/6`) verbatim, then sweep only `k_mu`.
+   Tetrahedralisation is already verified.
+3. **Finer cloth grid.** ρ = −0.786 saturates because a 7×5 grid cannot represent a fold.
+   Needs a re-derived stable (mass, cell, ke, kd) point, not a changed cell alone.
+4. **Render bounce and settle.** Each needs a `*_render_prep.py` exporting poses in
+   `blender_render_scene.py`'s format — `balance_render_prep.py` shows the pattern, including
+   the COM-offset convention.
+5. **Per-object focus in the fit**: full-frame global term alongside the per-object crops.
+   `multiprobe_build.py` already writes `_FULL.mp4`; `joint_fit.py` ignores it.
 
 ## Environment & layout
 
-NVIDIA GPU; Newton/Warp (alpha, expect churn) + Cosmos 3; VRAM-tight ⇒ judge as a
-separate pass over cached clips. Python, pinned requirements.
+NVIDIA GPU (use one, don't hold idle ones); Newton 1.4.0 / Warp 1.15.0 (alpha, expect churn)
++ Cosmos 3; VRAM-tight ⇒ judge as a separate pass over cached clips.
+Python at `/home/jooyeolyun/anaconda3/envs/warp/bin/python`.
+Blender at `/home/nas5/jaeseonglee/blender-4.4.3-linux-x64/blender`.
+`SolverVBD` gradients are exactly 0.0 in newton 1.4.0 — use `SolverSemiImplicit` for anything
+differentiable.
 
 ```
 configs/
 src/
-  sim/        Newton wrapper: scene, rollout, θ
-  render/     mp4 harness (done) + differentiable renderer (G1)
-  judge/      Cosmos 3 pairwise comparator; no-think scoring mode (G0)
-  optimize/   CEM (validated) + gradient-MAP ratchet loop (G2)
-  evidence/   scorer registry [later]
-  motion/     RETIRED tracker/spectral loss — reference only
-scripts/      j2b_pairwise_test.py · j3_fit.py · g0..g2 per milestone
+  sim/        mesh_contact · mesh_scene · deformable · probe_scene (legacy sphere cover)
+  render/     Cycles harness (RENDER_SCALE, CAM_PULL, TABLE_SX/SY) · crop · camera · views
+  judge/      Cosmos 3 pairwise + absolute; fp32 head, full-frame decode
+  optimize/   CEM · SPSA with per-object θ
+scripts/      probe_*.py · bigscene_sim.py · joint_fit.py · iter_report.py
+docs/         PROBE_*.md · SCALE_RANGE.md · MESH_CONTACT.md · BIGSCENE.md · iters/
 ```
+
+`scripts/iter_report.py [RUN] --max-clips N` emits one page per object: θ per iteration, the
+per-probe plus/minus scores, and the clip pairs that produced them.
