@@ -86,10 +86,16 @@ def cloth_run(tri_ke, grid, n_frames=60, substeps=32):
             "height_cm": float((end[:, 2].max() - end[:, 2].min()) * 100)}
 
 
-def soft_run(k_mu, V, T, n_frames=45, substeps=64):
-    m = build_soft_model(V, T, density=150.0, k_mu=k_mu, k_lambda=k_mu * 2.0,
-                         k_damp=1.0, pos=(0.0, 0.0, 0.13), radius=0.006)
-    Q = simulate(m, n_frames, substeps, ground_z=0.0, gk=6.0e3)
+PITCH = 0.016
+
+
+def soft_run(k_mu, V, T, n_frames=40, substeps=64):
+    # DiffSoft's validated set verbatim: density 800, lam_ratio 2, k_damp 10, substeps 64,
+    # ground penalty k=3000 cd=25 mu=0.5, drop_gap 0.06 -- and radius at 1/6 of the particle
+    # SPACING, which is the ratio that matters, not the absolute value.
+    m = build_soft_model(V, T, density=800.0, k_mu=k_mu, k_lambda=k_mu * 2.0,
+                         k_damp=10.0, pos=(0.0, 0.0, 0.06), radius=PITCH / 6.0)
+    Q = simulate(m, n_frames, substeps, ground_z=0.0, gk=3.0e3, gcd=25.0, gmu=0.5)
     if Q is None:
         return None
     h = Q[:, :, 2].max(1) - Q[:, :, 2].min(1)      # body height per frame
@@ -124,10 +130,10 @@ def main():
                   f"   <- the reading")
             print(f"  rho(log tri_ke, height) = {np.corrcoef(np.log10(a[:,0]), a[:,2])[0,1]:+.3f}")
 
-        V, T = tets_from_mesh(load_asset("soft", "rubber_duck_toy"), pitch=0.016, scale=0.62)
+        V, T = tets_from_mesh(load_asset("soft", "rubber_duck_toy"), pitch=PITCH, scale=0.62)
         print(f"\n=== SOFT PRESS-RELEASE  (duck, {len(T)} tets from a real scan)")
         print(f"  {'k_mu':>9}{'h0 cm':>8}{'compress %':>12}{'recover %':>11}")
-        for km in [1.0e3, 3.0e3, 9.0e3, 2.7e4, 8.1e4]:
+        for km in [1.5e3, 3.0e3, 6.0e3, 1.2e4, 2.4e4]:
             r = soft_run(km, V, T)
             if r is None:
                 print(f"  {km:>9.0f}   DIVERGED"); continue

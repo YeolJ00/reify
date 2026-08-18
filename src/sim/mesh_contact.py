@@ -161,7 +161,7 @@ def vertex_weights(mesh):
 def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
                    vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
                    is_hinge: wp.array(dtype=int), anchor: wp.array(dtype=wp.vec3),
-                   axis: wp.array(dtype=wp.vec3), damp: float):
+                   axis: wp.array(dtype=wp.vec3), damp: wp.array(dtype=float)):
     """Reduced-coordinate revolute joint, applied as a projection after integration.
 
     A pan balance needs a real pivot, and a penalty spring would introduce a compliance whose
@@ -186,7 +186,7 @@ def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
     # of the oscillation rather than the equilibrium (measured 3/7 correct). Every real
     # balance has pivot friction and air drag; without them the probe has no steady state
     # to read at all.
-    vang[b] = a * wp.dot(vang[b], a) * damp
+    vang[b] = a * wp.dot(vang[b], a) * damp[b]
     # swing-twist: keep only the twist about `a`
     q = rot[b]
     v = wp.vec3(q[0], q[1], q[2])

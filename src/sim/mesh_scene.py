@@ -99,6 +99,7 @@ class MeshProbeScene:
         self.anchor = wp.zeros(self.N, dtype=wp.vec3)
         self.axis = wp.array(np.tile([0.0, 1.0, 0.0], (self.N, 1)).astype(np.float32),
                              dtype=wp.vec3)
+        self._hinge_damp = wp.array(np.ones(self.N, np.float32), dtype=float)
 
     def set_masses(self, m):
         m = np.asarray(m, np.float64).reshape(self.N)
@@ -123,16 +124,23 @@ class MeshProbeScene:
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
 
     def set_hinge(self, bi, anchor, axis=(0.0, 1.0, 0.0), damp_per_sec=6.0):
-        """Pin body `bi` to `anchor`, free to rotate only about `axis`.
+        """Pin body `bi` to `anchor`, free to rotate only about `axis`. Exact, no stiffness.
 
         `damp_per_sec` is the exponential decay rate of angular velocity, converted to a
-        per-step factor -- so the settling time is a physical time, independent of dt.
+        per-step factor -- so settling time is a physical time, independent of dt. It is
+        stored PER BODY: a scene can hold a balance beam that swings and settles alongside a
+        stand that must never move at all, and a single shared value would let whichever
+        hinge was configured last silently overwrite the other.
         """
-        self._hinge_damp = float(np.exp(-float(damp_per_sec) * self.dt))
-        return self._set_hinge_arrays(bi, anchor, axis)
+        d = self._hinge_damp.numpy()
+        d[bi] = float(np.exp(-float(damp_per_sec) * self.dt))
+        self._hinge_damp.assign(d)
+        h = self.is_hinge.numpy(); h[bi] = 1; self.is_hinge.assign(h)
+        a = self.anchor.numpy(); a[bi] = np.asarray(anchor, np.float32); self.anchor.assign(a)
+        x = self.axis.numpy(); x[bi] = np.asarray(axis, np.float32); self.axis.assign(x)
 
     def _set_hinge_arrays(self, bi, anchor, axis=(0.0, 1.0, 0.0)):
-        """Pin body `bi` to `anchor`, free to rotate only about `axis`. Exact, no stiffness."""
+        """Deprecated alias kept for callers predating per-body hinge damping."""
         h = self.is_hinge.numpy(); h[bi] = 1; self.is_hinge.assign(h)
         a = self.anchor.numpy(); a[bi] = np.asarray(anchor, np.float32); self.anchor.assign(a)
         x = self.axis.numpy(); x[bi] = np.asarray(axis, np.float32); self.axis.assign(x)
@@ -179,7 +187,7 @@ class MeshProbeScene:
             wp.launch(apply_revolute, self.N,
                       inputs=[self.pos[t + 1], self.rot[t + 1], self.vlin[t + 1],
                               self.vang[t + 1], self.is_hinge, self.anchor, self.axis,
-                              getattr(self, "_hinge_damp", 1.0)])
+                              self._hinge_damp])
 
     def rest_height(self, bi):
         """Table-relative z that puts this body's lowest vertex exactly on the table."""

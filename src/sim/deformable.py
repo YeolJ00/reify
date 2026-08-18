@@ -129,9 +129,16 @@ def build_cloth_model(nx, ny, cell, mass, tri_ke, tri_kd, edge_ke, edge_kd=0.1,
     return b.finalize()
 
 
-def build_soft_model(V, T, density, k_mu, k_lambda, k_damp, pos=(0, 0, 1.0), radius=0.01):
+def build_soft_model(V, T, density, k_mu, k_lambda, k_damp, pos=(0, 0, 1.0), radius=0.005):
+    """Defaults copied from DiffSoft, which is a validated stable point for this solver.
+
+    `radius` is the same trap the cloth hit, and the ratio to particle SPACING is what matters:
+    DiffSoft uses radius 0.005 at cell 0.03, i.e. 1/6 of the spacing. A radius that is a large
+    fraction of the spacing makes neighbouring particles overlap in the REST configuration, so
+    the solver pushes them apart from the first substep and the body explodes.
+    """
     b = newton.ModelBuilder()
-    b.default_particle_radius = float(radius)      # same trap as cloth -- see build_cloth_model
+    b.default_particle_radius = float(radius)
     mesh = newton.TetMesh(vertices=[wp.vec3(*v) for v in np.asarray(V, np.float32)],
                           tet_indices=np.asarray(T, np.int32).flatten().tolist())
     b.add_soft_mesh(pos=wp.vec3(*pos), rot=wp.quat_identity(), scale=1.0,
