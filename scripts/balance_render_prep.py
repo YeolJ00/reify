@@ -40,10 +40,10 @@ def quat_to_mat(q):
 def main():
     LAB.mkdir(parents=True, exist_ok=True)
     wp.init()
-    W = 0.05
+    W, WH = 0.042, 0.095      # must match probe_balance.run()
     a_beam = export(beam_with_pans(), "_bal_beam")
     a_stand = export(stand_mesh(), "_bal_stand")
-    a_wt = export(trimesh.creation.box(extents=(W,) * 3), "_bal_weight")
+    a_wt = export(trimesh.creation.box(extents=(W, W, WH)), "_bal_weight")
     # Must match probe_balance.run()'s body order exactly: beam, stand, unknown, reference.
     # A hard-coded three-name list shifted every body one slot, so the stand rendered as a
     # weight box and the reference mass vanished from the scene entirely.

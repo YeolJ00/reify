@@ -91,8 +91,11 @@ def run(m_obj, m_ref, obj_asset=None, obj_scale=1.0, n_frames=NF):
     # pan floor top, in world z. Weights are placed by their CENTRE, so half the weight's
     # own height must be added -- otherwise each weight starts buried inside the pan floor
     # and the contact spends the run pushing it out instead of weighing it.
-    W = 0.05
-    z_pan = z_beam + BEAM_T / 2 + PAN_T + W / 2 + 0.002
+    # Weights are TALLER than the pan rim (55 mm) on purpose. As 50 mm cubes they sat
+    # entirely inside the cup and the render showed two empty pans -- the rig looked like a
+    # balance weighing nothing, which is exactly what a judge would be asked to read.
+    W, WH = 0.042, 0.095
+    z_pan = z_beam + BEAM_T / 2 + PAN_T + WH / 2 + 0.002
     names = [beam_with_pans(), stand_mesh()]
     masses = [0.45, 2.0]
     # placeholder z for the stand -- MeshProbeScene COM-centres every body, so the correct
@@ -100,9 +103,9 @@ def run(m_obj, m_ref, obj_asset=None, obj_scale=1.0, n_frames=NF):
     # the stand to its centroid and it then fouls the beam, which flipped two sweep cases.
     pos = [[0.0, 0.0, z_beam], [0.0, 0.0, GZ]]
     # unknown on the +x pan, reference on the -x pan
-    obj = obj_asset if obj_asset is not None else trimesh.creation.box(extents=(W,) * 3)
+    obj = obj_asset if obj_asset is not None else trimesh.creation.box(extents=(W, W, WH))
     names.append(obj); masses.append(m_obj); pos.append([+ARM, 0.0, z_pan])
-    names.append(trimesh.creation.box(extents=(W,) * 3)); masses.append(m_ref)
+    names.append(trimesh.creation.box(extents=(W, W, WH))); masses.append(m_ref)
     pos.append([-ARM, 0.0, z_pan])
     N_RIG = 2                       # beam, stand -- everything after is a weight
 
