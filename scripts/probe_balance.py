@@ -32,7 +32,7 @@ from src.sim.mesh_scene import MeshProbeScene          # noqa: E402
 GZ = 0.706
 FPS, SUBSTEPS, NF = 24.0, 60, 48   # coarsening these to speed a render cost 6/7 -> 4/7
 BEAM_L, BEAM_W, BEAM_T = 0.60, 0.05, 0.012      # m
-PAN_R, PAN_T, PAN_RIM = 0.085, 0.022, 0.035
+PAN_R, PAN_T, PAN_RIM = 0.085, 0.022, 0.055
 COL_R, BASE_R, BASE_T = 0.014, 0.075, 0.014      # centre column and its foot
 ARM = 0.24                                       # pivot -> pan centre
 PIVOT_H = 0.14                                   # pivot height above the table
@@ -55,7 +55,7 @@ def beam_with_pans():
         floor = trimesh.creation.cylinder(radius=PAN_R, height=PAN_T, sections=28)
         floor.apply_translation([sgn * ARM, 0.0, BEAM_T / 2 + PAN_T / 2])
         parts.append(floor)
-        rim = trimesh.creation.annulus(r_min=PAN_R * 0.86, r_max=PAN_R,
+        rim = trimesh.creation.annulus(r_min=PAN_R * 0.80, r_max=PAN_R,
                                        height=PAN_RIM, sections=28)
         rim.apply_translation([sgn * ARM, 0.0, BEAM_T / 2 + PAN_T + PAN_RIM / 2])
         parts.append(rim)
@@ -108,7 +108,7 @@ def run(m_obj, m_ref, obj_asset=None, obj_scale=1.0, n_frames=NF):
 
     s = MeshProbeScene(names, pos, [[0., 0., 0.]] * len(names), masses=masses,
                        ground_z=GZ, dt=1.0 / (FPS * SUBSTEPS), n_steps=n_frames * SUBSTEPS,
-                       k=2500.0, cd=3000.0, mu=0.6, faces=600,
+                       k=2500.0, cd=3000.0, mu=0.9, faces=600,
                        mesh_scale=[1.0, 1.0, obj_scale, 1.0],
                        ground_mu=0.45, ground_cd=3000.0)
     p0 = s.pos0.copy(); p0[1, 2] = s.rest_height(1); s.pos0 = p0
@@ -123,7 +123,12 @@ def run(m_obj, m_ref, obj_asset=None, obj_scale=1.0, n_frames=NF):
     # outright, so it is immovable without needing a static-body concept in the solver.
     s.set_hinge(1, anchor=(0.0, 0.0, float(p0[1, 2])), axis=(0.0, 0.0, 1.0),
                 damp_per_sec=1.0e6)
-    s.set_hinge(0, anchor=(0.0, 0.0, z_beam), axis=(0.0, 1.0, 0.0))
+    # Heavier pivot damping so the beam ARRIVES at its stop rather than slamming into
+    # it: a hard arrival flung the lightest case's weight clean out of its pan
+    # (x 0.240 -> 0.461), after which the reference outweighed it and the beam
+    # reported the opposite sign.
+    s.set_hinge(0, anchor=(0.0, 0.0, z_beam), axis=(0.0, 1.0, 0.0),
+                damp_per_sec=14.0, limit_deg=9.0)
     s.rollout()
     Q = s.rotations(SUBSTEPS)[:, 0]          # beam quaternion per frame
     # signed rotation about +y, in degrees. +y rotation drops +x (the object side).

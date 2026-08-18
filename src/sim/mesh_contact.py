@@ -161,7 +161,8 @@ def vertex_weights(mesh):
 def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
                    vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
                    is_hinge: wp.array(dtype=int), anchor: wp.array(dtype=wp.vec3),
-                   axis: wp.array(dtype=wp.vec3), damp: wp.array(dtype=float)):
+                   axis: wp.array(dtype=wp.vec3), damp: wp.array(dtype=float),
+                   limit: wp.array(dtype=float)):
     """Reduced-coordinate revolute joint, applied as a projection after integration.
 
     A pan balance needs a real pivot, and a penalty spring would introduce a compliance whose
@@ -194,6 +195,18 @@ def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
     tw = wp.quat(proj[0], proj[1], proj[2], q[3])
     n = wp.sqrt(tw[0] * tw[0] + tw[1] * tw[1] + tw[2] * tw[2] + tw[3] * tw[3])
     if n > 1.0e-9:
-        rot[b] = wp.quat(tw[0] / n, tw[1] / n, tw[2] / n, tw[3] / n)
+        tw = wp.quat(tw[0] / n, tw[1] / n, tw[2] / n, tw[3] / n)
     else:
-        rot[b] = wp.quat(0.0, 0.0, 0.0, 1.0)
+        tw = wp.quat(0.0, 0.0, 0.0, 1.0)
+    # ANGLE STOPS. A real balance swings a few degrees, not ninety: its beam meets stops that
+    # keep the pans near level. Without them the pans tip with the beam and whatever is in
+    # them slides out over the rim -- measured, both weights ended on the TABLE, so the
+    # reading came from the moment before they escaped rather than from a weighing.
+    if limit[b] > 0.0:
+        ang = 2.0 * wp.atan2(wp.dot(wp.vec3(tw[0], tw[1], tw[2]), a), tw[3])
+        if ang > limit[b] or ang < -limit[b]:
+            cl = wp.clamp(ang, -limit[b], limit[b])
+            hs = wp.sin(cl * 0.5)
+            tw = wp.quat(a[0] * hs, a[1] * hs, a[2] * hs, wp.cos(cl * 0.5))
+            vang[b] = wp.vec3(0.0, 0.0, 0.0)      # dead stop, no bounce
+    rot[b] = tw

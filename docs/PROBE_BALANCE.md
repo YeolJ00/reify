@@ -10,50 +10,56 @@ motion-magnitude confound that has tracked every other reading here (ρ up to �
 
 ## Result
 
-Fixed 0.30 kg unknown, sweeping the reference:
+Fixed 0.30 kg unknown, sweeping the reference. **7/7**, and the sign flip brackets the unknown
+at **[0.26, 0.34] kg against a true 0.30**. The balanced case settles at −0.35°, i.e. level.
 
-| m_ref | expected | settled tilt | correct |
-|---|---|---|---|
-| 0.10 | obj down | +19.67° | yes |
-| 0.20 | obj down | +17.50° | yes |
-| 0.26 | obj down | −19.54° | no |
-| 0.30 | balance | +2.25° | yes |
-| 0.34 | ref down | −19.76° | yes |
-| 0.40 | ref down | −19.83° | yes |
-| 0.60 | ref down | −18.83° | yes |
+| m_ref | expected | settled tilt |
+|---|---|---|
+| 0.10 | object down | +9.00° |
+| 0.20 | object down | +9.00° |
+| 0.26 | object down | +9.00° |
+| 0.30 | balance | −0.35° |
+| 0.34 | reference down | −9.00° |
+| 0.40 | reference down | −9.00° |
+| 0.60 | reference down | −9.00° |
 
-**6/7**, and the sign flip brackets the unknown at **[0.26, 0.30] kg against a true 0.30**.
-Tilt saturates near ±19.7° because the beam swings to a mechanical stop, which makes the
-readout cleanly binary. The one miss is the 13%-imbalance case, where saturation leaves little
-margin.
+## The rig
 
-## The mechanism
+**Exact revolute constraint** (`mesh_contact.apply_revolute`, `MeshProbeScene.set_hinge`).
+Reduced-coordinate: position pinned to the anchor, rotation projected to the twist about the
+axis by swing-twist decomposition, linear velocity zeroed, angular velocity projected onto the
+axis. No stiffness parameter, so nothing to tune and no compliance biasing the threshold.
+Verified in isolation — a hinged beam spun at 2.0 rad/s under zero torque holds `wy = 2.0000`
+with off-axis components exactly 0.
 
-**Exact revolute constraint** (`src/sim/mesh_contact.py::apply_revolute`,
-`MeshProbeScene.set_hinge`). Reduced-coordinate: position pinned to the anchor, rotation
-projected to the twist about the axis by swing-twist decomposition, linear velocity zeroed,
-angular velocity projected onto the axis. No stiffness parameter, so nothing to tune and no
-compliance to bias the threshold. Verified in isolation — a hinged beam spun at 2.0 rad/s with
-zero torque holds `wy = 2.0000` exactly, with off-axis components exactly 0.
+Damping and angle limits are stored **per body**: a scene holds a beam that swings and settles
+alongside a stand that must never move, and a single shared value let whichever hinge was
+configured last silently overwrite the other.
 
-**Beam and pans are one rigid body** with a rim on each pan. As separate bodies the pans slid
-off the moment the beam tilted, and the tilt reported where the pans went.
+**Angle stops at ±9°.** A real balance swings a few degrees against stops that keep its pans
+near level. Without them the pans tipped with the beam and their contents slid out over the
+rim — measured, both weights ended on the *table*, so the reading came from the moment before
+they escaped rather than from a weighing. With stops, heavier pivot damping (so the beam
+arrives at the stop rather than slamming into it), a deeper pan rim and higher pan friction,
+**6/6 weights stay in their pans** for the whole clip.
 
-**Pivot damping**, given as a rate per second and converted to a per-step factor so settling
-time is independent of `dt`. An ideal frictionless hinge never settles, so any fixed frame
-samples an arbitrary phase of an undamped pendulum.
+**A centre column and foot.** Structural, and a real body in the sim rather than a render-only
+prop so that anything falling on it collides properly. It ends 5 cm below the pivot: the beam
+underside at tilt *t* and radius *x* sits at `pivot_z − (BEAM_T/2)cos t − x·sin t`, so a column
+reaching to just under the level beam is struck as soon as it tilts.
 
-## The bug that mattered
+## Errors worth remembering
 
-Everything above was in place at 2/7. The actual fault: `calibrate_stiffness` sizes `k` from
-the body's own length, so a 0.60 m beam got a soft spring, and the pair contact uses springs in
-series (`kij = ki·kj/(ki+kj)`). That gave ~18 mm of penetration against an 8 mm pan floor —
-**every weight sank through its pan and landed on the table**. The trace is unambiguous: weights
-settling at z = 0.731, which is table height plus half a box.
-
-Fixed by making the beam stiff (`k = 2e5`, it is a rigid balance beam) and thickening the pan
-floor to 22 mm. 2/7 → 6/7.
-
-The lesson matches the sphere-cover one: three plausible modelling errors were found and fixed
-first (pans sliding off, undamped pivot, weights buried in the pan floor) and none moved the
-result, because the real fault was a scale mismatch upstream of all of them.
+- **Coarsening the timestep to speed a render changed the answer**: 7/7 → 4/7 when substeps
+  went 60 → 24 and frames 48 → 40. The physics was never the problem.
+- **The stand was buried to its centroid.** `MeshProbeScene` COM-centres every body, so
+  placing it at `GZ` sinks it; placement goes through `rest_height()`.
+- **The render prep hard-coded three body names** while the scene had four, silently shifting
+  every body one slot — the stand rendered as a weight box and the reference mass vanished
+  from the scene. It now asserts the count matches.
+- Three earlier modelling errors were each real and each fixed nothing on their own (pans as
+  free bodies sliding off the beam, a frictionless undamped pivot sampling arbitrary pendulum
+  phase, weights placed by centre at the pan surface and so starting buried in it). The fault
+  was upstream: `calibrate_stiffness` sizes `k` from body length, so a 0.60 m beam got a soft
+  spring, and the pair contact combines springs in series — giving ~18 mm of penetration
+  against an 8 mm pan floor, so every weight sank through its pan onto the table.

@@ -100,6 +100,7 @@ class MeshProbeScene:
         self.axis = wp.array(np.tile([0.0, 1.0, 0.0], (self.N, 1)).astype(np.float32),
                              dtype=wp.vec3)
         self._hinge_damp = wp.array(np.ones(self.N, np.float32), dtype=float)
+        self._hinge_limit = wp.zeros(self.N, dtype=float)     # 0 = unlimited swing
 
     def set_masses(self, m):
         m = np.asarray(m, np.float64).reshape(self.N)
@@ -123,7 +124,8 @@ class MeshProbeScene:
             Gs.append(G.astype(np.float32)); Gis.append(np.linalg.inv(G).astype(np.float32))
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
 
-    def set_hinge(self, bi, anchor, axis=(0.0, 1.0, 0.0), damp_per_sec=6.0):
+    def set_hinge(self, bi, anchor, axis=(0.0, 1.0, 0.0), damp_per_sec=6.0,
+                  limit_deg=None):
         """Pin body `bi` to `anchor`, free to rotate only about `axis`. Exact, no stiffness.
 
         `damp_per_sec` is the exponential decay rate of angular velocity, converted to a
@@ -132,6 +134,9 @@ class MeshProbeScene:
         stand that must never move at all, and a single shared value would let whichever
         hinge was configured last silently overwrite the other.
         """
+        if limit_deg is not None:
+            L = self._hinge_limit.numpy()
+            L[bi] = float(np.radians(limit_deg)); self._hinge_limit.assign(L)
         d = self._hinge_damp.numpy()
         d[bi] = float(np.exp(-float(damp_per_sec) * self.dt))
         self._hinge_damp.assign(d)
@@ -187,7 +192,7 @@ class MeshProbeScene:
             wp.launch(apply_revolute, self.N,
                       inputs=[self.pos[t + 1], self.rot[t + 1], self.vlin[t + 1],
                               self.vang[t + 1], self.is_hinge, self.anchor, self.axis,
-                              self._hinge_damp])
+                              self._hinge_damp, self._hinge_limit])
 
     def rest_height(self, bi):
         """Table-relative z that puts this body's lowest vertex exactly on the table."""
