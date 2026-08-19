@@ -58,3 +58,30 @@ begins to tip rather than slide, so the threshold stops being a pure friction re
 
 The ramp also has to run past the largest predicted angle: at a 40° ceiling the μ=0.85 case was
 clipped by the sweep itself rather than by physics.
+
+---
+
+# Retired: collide and drop
+
+**`collide` (and `collide_heavy`, `collide_slow`) — removed.** It existed to recover mass and
+its observable is provably independent of mass: a body shoved at fixed velocity decelerates at
+`μg` and slides `v²/(2μg)` whatever it weighs. No reweighting could have fixed that. It was
+also the loudest term in the fit (|dy| 1.72) and the least consistent (3/6), so it was steering
+θ with noise. Mass is now read by the **balance** probe, whose observable is a sign test on the
+moment difference.
+
+**`drop` — superseded by `bounce`.** Same quantity (contact damping) on essentially the same
+rollout, but bounce holds the object and excitation fixed and sweeps only `cd`:
+**ρ = −0.995** against drop's −0.186. Drop's −0.186 was measured *across 14 objects*, where
+shape dominates the rebound; the fault was the comparison, not the observable.
+
+`scripts/mesh_probes.py` ran only tilt, drop and collide and has been deleted — tilt lives in
+`bigscene_sim.py`, and the other two are gone.
+
+Both are **absent** from `PROBE_MASK`, not present at weight zero. A retired probe left in the
+registry still costs a simulation, a render and a judge call every iteration, and it comes back
+the first time someone tries a small non-zero weight.
+
+One cost worth stating: the two retired probes held the **only measured** Fisher weights
+(`drop` 0.430, `collide` 0.497, from the yes-region sample). Their replacements start at the
+unmeasured mean, so `PROBE_W` is provisional until the sample is re-run.

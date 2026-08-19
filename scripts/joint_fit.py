@@ -47,18 +47,28 @@ KEEP = RUN / "iters"
 MODEL = "nvidia/Cosmos3-Super"
 
 # WHICH PARAMETER EACH PROBE CAN SEE. A probe should only move what it has information
-# about. Summing all three probes into one scalar and updating all of theta let the collide
-# term -- measured loudest (|dy| 1.72) and least consistent (3/6) -- push mu, which it knows
-# nothing about. Masked updates confine each probe's gradient to its own coordinates.
+# about. Summing every probe into one scalar and updating all of theta let the loudest term
+# push coordinates it knows nothing about -- the retired collide probe had |dy| 1.72 and 3/6
+# consistency and was steering mu. Masked updates confine each probe to its own coordinates.
 #   theta index:  0 = log10 mu, 1 = log10 cd, 2 = log10 rho
+# RETIRED, and deliberately absent rather than zero-weighted:
+#   collide / collide_heavy / collide_slow -- the observable is provably independent of the
+#     parameter. A body shoved at fixed velocity decelerates at mu*g and slides v^2/(2*mu*g)
+#     REGARDLESS of its mass, so no amount of reweighting could have made it read density.
+#     It was also the loudest term (|dy| 1.72) and the least consistent (3/6), i.e. it was
+#     driving the fit with noise. Mass is now read by the balance probe.
+#   drop -- superseded by `bounce`, which measures the same contact damping on the same
+#     rollout but keeps the object and excitation fixed while sweeping only cd: rho = -0.995
+#     against drop's -0.186 across objects.
+# A retired probe must not linger at weight zero: it still costs a sim, a render and a judge
+# call per iteration, and it reappears the moment someone "tries a small weight".
 PROBE_MASK = {"tilt":    np.array([1.0, 0.0, 0.0]),   # slip angle       -> friction
-              "drop":    np.array([0.0, 1.0, 0.0]),   # bounce           -> contact damping
-              "collide": np.array([0.0, 0.0, 1.0]),   # momentum         -> density
               "spin":    np.array([1.0, 0.0, 0.0]),   # spin-down rate   -> friction
-              "stack":   np.array([1.0, 0.0, 1.0]),   # topple angle     -> friction + mass
-              "shove":   np.array([1.0, 0.0, 0.0]),   # stopping         -> friction
-              "collide_heavy": np.array([0.0, 0.0, 1.0]),
-              "collide_slow":  np.array([0.0, 0.0, 1.0])}
+              "stack":   np.array([1.0, 0.0, 1.0]),   # collapse angle   -> friction + mass
+              "bounce":  np.array([0.0, 1.0, 0.0]),   # rebound height   -> contact damping
+              "settle":  np.array([0.0, 1.0, 0.0]),   # decay of rocking -> contact damping
+              "balance": np.array([0.0, 0.0, 1.0]),   # which pan drops  -> mass
+              "shove":   np.array([1.0, 0.0, 0.0])}   # stopping         -> friction
 
 # WEIGHTS, measured rather than assumed. A probe that returns the same answer for every
 # theta carries no information however sign-consistent it is. Fisher information for a
@@ -69,9 +79,11 @@ PROBE_MASK = {"tilt":    np.array([1.0, 0.0, 0.0]),   # slip angle       -> fric
 # mean p(yes) is 0.948 so p(1-p) = 0.047. Consistency and informativeness are different
 # properties and equal weighting confused them. New probes start at the mean until measured.
 _M = 0.33
-PROBE_W = {"tilt": 0.072, "drop": 0.430, "collide": 0.497,
-           "collide_heavy": 0.497, "collide_slow": 0.497,   # same family, measured value
-           "spin": _M, "stack": _M, "shove": _M}
+PROBE_W = {"tilt": 0.072,
+           # the retired probes held the only MEASURED weights (drop 0.430, collide 0.497);
+           # their replacements have not been through the yes-region sample yet and start at
+           # the mean, so these weights are provisional and should be re-measured.
+           "spin": _M, "stack": _M, "bounce": _M, "settle": _M, "balance": _M, "shove": _M}
 
 OBJECTS = {"brass_pot": 0.30, "wooden_bowl": -0.30}
 NOUN = {"brass_pot": "brass pot", "wooden_bowl": "wooden bowl"}
