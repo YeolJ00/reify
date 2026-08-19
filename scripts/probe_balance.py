@@ -45,8 +45,19 @@ BEAM_L, BEAM_W, BEAM_T = 0.62, 0.045, 0.012
 # The pan has to SUIT ITS SUBJECT. At 90 mm radius with a 22 mm wall it was barely wider
 # than the apple it was weighing (98 mm across), and a swinging pan simply tipped it out --
 # both payloads ended on the table and the balance weighed its own empty pans.
-PAN_R, PAN_T, PAN_WALL = 0.090, 0.020, 0.058
-ARM = 0.240
+# The pans are real scanned BOWLS, not fabricated cups. A flat pan with a wall lets a round
+# subject roll to the rim and climb out -- the apple left the pan entirely at 12 degrees of
+# tilt. Every fabricated alternative failed differently: a stepped well ejected the subject on
+# contact with its shelf, a snug pan jammed it, and hanging pans swung it out. A bowl is
+# concave all the way to its centre, so a round object settles at the bottom and stays there,
+# which is the property that was missing and the reason real balance pans are dished.
+PAN_ASSET, PAN_SCALE = ("rigid", "wooden_bowl_01"), 0.75
+# How far the pivot sits ABOVE the beam assembly's centre of mass. This is the balance's
+# sensitivity: at zero the beam is in neutral equilibrium and slams to a stop on any imbalance,
+# carrying no magnitude information at all. Larger values give a stiffer, less sensitive
+# instrument that settles at a small angle proportional to the load difference.
+PIVOT_RISE = 0.030
+ARM = 0.250
 PIVOT_H = 0.20
 COL_R, BASE_R, BASE_T = 0.016, 0.080, 0.016
 
@@ -55,24 +66,42 @@ SUBJECT = ("rigid", "food_apple_01", 1.0, 0.182)    # cat, name, scale, TRUE mas
 REFS = [0.05, 0.10, 0.15, 0.18, 0.22, 0.30, 0.50]
 
 
-def beam_with_pans():
-    """Beam and both pans as ONE rigid body. Each pan is a stepped WELL, not a flat cup.
+def pan_bowl():
+    """The bowl mesh, scaled, with its base at z=0."""
+    bowl = decimate(load_asset(*PAN_ASSET), 900).copy()
+    bowl.apply_scale(PAN_SCALE)
+    V = np.asarray(bowl.vertices)
+    bowl.apply_translation([-V[:, 0].mean(), -V[:, 1].mean(), -V[:, 2].min()])
+    return bowl
 
-    A stepped well was tried, on the reasoning that a flat pan lets a round subject roll and
-    real balance pans are dished. It made things worse -- the raised inner shelf ejected the
-    apple on contact and every case in the sweep pinned to the same tilt. A plain cup with a
-    tall wall retains it. The rolling problem is real but was solved on the reference side, by
-    using blocks instead of cylinders.
+
+def pan_inner_z():
+    """Height of the bowl's INNER floor above its base.
+
+    A bowl is a shell: near its axis the lowest vertices are the OUTSIDE of the base and the
+    highest are the inside surface a payload actually rests on. Seating a payload on the outer
+    bottom buried it 12 mm inside the floor, and the contact then ejected it -- every subject
+    ended on the table. Measure the inner surface instead of assuming the pan is a flat plate.
     """
-    parts = [trimesh.creation.box(extents=(BEAM_L, BEAM_W, BEAM_T))]
+    V = np.asarray(pan_bowl().vertices)
+    r = np.linalg.norm(V[:, :2], axis=1)
+    core = V[r < 0.15 * r.max()]
+    return float(core[:, 2].max())
+
+
+def beam_with_pans():
+    """Beam plus two bowl-shaped pans, as ONE rigid body.
+
+    Welded rather than hung: a suspended pan is a pendulum and its swing threw the payload out
+    (sweeps went 7/7 -> 5/7 -> 2/7). `MeshProbeScene.add_link` remains available for suspended
+    assemblies where that is not a problem.
+    """
+    beam = trimesh.creation.box(extents=(BEAM_L, BEAM_W, BEAM_T))
+    parts = [beam]
     for sgn in (-1.0, +1.0):
-        floor = trimesh.creation.cylinder(radius=PAN_R, height=PAN_T, sections=32)
-        floor.apply_translation([sgn * ARM, 0.0, BEAM_T / 2 + PAN_T / 2])
-        parts.append(floor)
-        wall = trimesh.creation.annulus(r_min=PAN_R * 0.86, r_max=PAN_R, height=PAN_WALL,
-                                        sections=32)
-        wall.apply_translation([sgn * ARM, 0.0, BEAM_T / 2 + PAN_T + PAN_WALL / 2])
-        parts.append(wall)
+        bowl = pan_bowl()
+        bowl.apply_translation([sgn * ARM, 0.0, BEAM_T / 2])
+        parts.append(bowl)
     return trimesh.util.concatenate(parts)
 
 
@@ -111,31 +140,38 @@ def ref_mesh(m):
 
 
 def build(m_ref):
-    z_beam = GZ + PIVOT_H
+    z_beam = GZ + PIVOT_H          # world height of the PIVOT
     names = [beam_with_pans(), stand_mesh(), subject_mesh(), ref_mesh(m_ref)]
     masses = [0.45, 3.0, SUBJECT[3], m_ref]
-    z_floor = z_beam + BEAM_T / 2 + PAN_T          # top of each pan floor
     pos = [[0.0, 0.0, z_beam], [0.0, 0.0, GZ],
-           [+ARM, 0.0, z_floor + 0.06], [-ARM, 0.0, z_floor + 0.06]]
+           [+ARM, 0.0, z_beam], [-ARM, 0.0, z_beam]]
     s = MeshProbeScene(names, pos, [[0., 0., 0.]] * len(names), masses=masses,
                        ground_z=GZ, dt=1.0 / (FPS * SUBSTEPS), n_steps=NF * SUBSTEPS,
                        k=2500.0, cd=3000.0, mu=0.9, faces=500,
                        ground_mu=0.45, ground_cd=3000.0)
     p0 = s.pos0.copy()
     p0[1, 2] = s.rest_height(1)
-    for bi in (2, 3):                              # seat each payload on its pan floor
+
+    # Where the beam body's ORIGIN ends up. MeshProbeScene puts it at the assembly's vertex
+    # mean -- which two large bowls move well above the beam box -- and the hinge holds a
+    # point PIVOT_RISE above that origin at z_beam. Both offsets have to be undone to find
+    # where a payload actually rests, rather than assuming the beam sits at the pivot.
+    c_z = float(s.coms[0][2])
+    p0[0, 2] = z_beam - PIVOT_RISE
+    z_floor = p0[0, 2] + (BEAM_T / 2 + pan_inner_z() - c_z)
+    for bi in (2, 3):                              # seat each payload in its bowl
         p0[bi, 2] = z_floor + s.sizes[bi] * 0.5 + 0.002
     s.pos0 = p0
+
     s.calibrate_stiffness()
     kk = s.k.numpy(); kk[0] = 2.0e5; kk[1] = 2.0e5; s.k.assign(kk)
     s.set_hinge(1, anchor=(0.0, 0.0, float(p0[1, 2])), axis=(0.0, 0.0, 1.0),
                 damp_per_sec=1.0e6)
-    # Stops at +/-12 deg. With hanging pans these are no longer holding the contents in --
-    # the pans stay level by themselves -- they only keep the beam inside a readable range.
-    # Unbounded, it swung to 59 deg, which is a catapult rather than an instrument.
+    # Stops at +/-12 deg keep the beam in a readable range; the pivot rise above the CoM is
+    # what makes the angle between them mean something.
     s.set_hinge(0, anchor=(0.0, 0.0, z_beam), axis=(0.0, 1.0, 0.0),
-                damp_per_sec=16.0, limit_deg=12.0)
-    # each pan hangs from its beam lug; attachment is the top of the pan's stem
+                damp_per_sec=16.0, limit_deg=12.0,
+                pivot_local=(0.0, 0.0, PIVOT_RISE))
     return s
 
 

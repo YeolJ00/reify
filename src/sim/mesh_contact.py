@@ -162,7 +162,7 @@ def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
                    vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
                    is_hinge: wp.array(dtype=int), anchor: wp.array(dtype=wp.vec3),
                    axis: wp.array(dtype=wp.vec3), damp: wp.array(dtype=float),
-                   limit: wp.array(dtype=float)):
+                   limit: wp.array(dtype=float), pivot_local: wp.array(dtype=wp.vec3)):
     """Reduced-coordinate revolute joint, applied as a projection after integration.
 
     A pan balance needs a real pivot, and a penalty spring would introduce a compliance whose
@@ -180,7 +180,13 @@ def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
     if is_hinge[b] == 0:
         return
     a = wp.normalize(axis[b])
-    pos[b] = anchor[b]
+    # The pivot is a BODY-LOCAL point, not the body origin. MeshProbeScene puts the origin at
+    # the vertex mean -- effectively the centre of mass -- so pinning the origin makes a
+    # balance pivot through its own CoM, which is neutral equilibrium: any imbalance swings it
+    # straight to the stop and the tilt carries no magnitude information. A real balance hangs
+    # its beam from a point ABOVE the CoM, which gives a restoring torque and a tilt angle that
+    # varies continuously with the load difference.
+    pos[b] = anchor[b] - wp.quat_rotate(rot[b], pivot_local[b])
     vlin[b] = wp.vec3(0.0, 0.0, 0.0)
     # Pivot damping. An ideal frictionless hinge never settles -- the beam swings as an
     # undamped pendulum, so reading the tilt at any fixed frame samples an arbitrary phase
