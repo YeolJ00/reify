@@ -16,11 +16,12 @@ import warp as wp
 
 REPO = Path("/home/nas5/jooyeolyun/repos/simulation-assestization")
 sys.path.insert(0, str(REPO)); sys.path.insert(0, str(REPO / "scripts"))
-from probe_balance import (ARM, BEAM_T, GZ, PIVOT_H, beam_with_pans,  # noqa: E402
-                           run, settled, stand_mesh)
+
+from probe_balance import (ARM, GZ, SUBJECT, beam_with_pans,  # noqa: E402
+                           ref_mesh, run, settled, stand_mesh, subject_mesh)
 
 LAB = Path(os.environ.get("LAB", "outputs/scene/balance"))
-CASES = [("light_ref", 0.30, 0.10), ("balanced", 0.30, 0.30), ("heavy_ref", 0.30, 0.60)]
+CASES = [("light_ref", 0.05), ("balanced", 0.18), ("heavy_ref", 0.50)]
 
 
 def export(mesh, name):
@@ -43,15 +44,19 @@ def main():
     W, WH = 0.042, 0.095      # must match probe_balance.run()
     a_beam = export(beam_with_pans(), "_bal_beam")
     a_stand = export(stand_mesh(), "_bal_stand")
-    a_wt = export(trimesh.creation.box(extents=(W, W, WH)), "_bal_weight")
-    # Must match probe_balance.run()'s body order exactly: beam, stand, unknown, reference.
-    # A hard-coded three-name list shifted every body one slot, so the stand rendered as a
-    # weight box and the reference mass vanished from the scene entirely.
-    BODIES = [("beam", a_beam), ("stand", a_stand), ("obj", a_wt), ("ref", a_wt)]
+    # The SUBJECT points at its original asset, not an exported copy. trimesh's OBJ
+    # writer drops the material, so a re-exported subject renders plain white -- and the
+    # judge would then be asked about a blank blob instead of an apple, a different
+    # material than the one in question (rule 4). Rig parts are exported copies because
+    # they are composites with no asset of their own; the subject never is.
+    a_subj = SUBJECT[0] + "/" + SUBJECT[1]
     scenes, objs = {}, {}
     with wp.ScopedDevice("cuda:0"):
-        for tag, mo, mr in CASES:
-            ang, s = run(mo, mr)
+        for tag, mr in CASES:
+            ang, s = run(mr)
+            # the reference block is sized by its mass, so it is a different asset per case
+            BODIES = [("beam", a_beam), ("stand", a_stand), ("obj", a_subj),
+                      ("ref", export(ref_mesh(mr), f"_bal_ref_{tag}"))]
             P, Q = s.positions(60), s.rotations(60)
             key = f"balance_{tag}"
             scenes[key] = {"tilt_deg": 0.0, "objects": {}}
@@ -66,9 +71,11 @@ def main():
                                 "mat": [[float(v) for v in r] for r in R]})
                 nk = f"{tag}_{nm}"
                 scenes[key]["objects"][nk] = seq
-                objs[nk] = {"asset": asset, "scale": 1.0, "rot_z": 0.0,
+                objs[nk] = {"asset": asset,
+                            "scale": SUBJECT[2] if nm == "obj" else 1.0,
+                            "rot_z": 0.0,
                             "pos": [float(v) for v in P[0, i]]}
-            print(f"  {tag:<10} m_obj={mo} m_ref={mr}  settled {settled(ang):+6.2f} deg")
+            print(f"  {tag:<10} m_ref={mr}  settled {settled(ang):+6.2f} deg")
     (LAB / "scene_poses.json").write_text(json.dumps(scenes))
     (LAB / "scene.json").write_text(json.dumps({"ground_z": GZ, "objects": objs}, indent=1))
     print(f"  wrote {LAB}/scene_poses.json  ({len(scenes)} scenes, {len(objs)} bodies)")
