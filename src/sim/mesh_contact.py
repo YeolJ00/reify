@@ -210,3 +210,41 @@ def apply_revolute(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
             tw = wp.quat(a[0] * hs, a[1] * hs, a[2] * hs, wp.cos(cl * 0.5))
             vang[b] = wp.vec3(0.0, 0.0, 0.0)      # dead stop, no bounce
     rot[b] = tw
+
+
+@wp.kernel
+def apply_links(pos: wp.array(dtype=wp.vec3), rot: wp.array(dtype=wp.quat),
+                vlin: wp.array(dtype=wp.vec3), vang: wp.array(dtype=wp.vec3),
+                link_a: wp.array(dtype=int), link_b: wp.array(dtype=int),
+                local_a: wp.array(dtype=wp.vec3), local_b: wp.array(dtype=wp.vec3),
+                stiff: wp.array(dtype=float), damp: wp.array(dtype=float),
+                force: wp.array(dtype=wp.vec3), torque: wp.array(dtype=wp.vec3)):
+    """Point-to-point spring linking two bodies -- the suspension a hanging pan needs.
+
+    Why a spring and not a projection: `apply_revolute` pins a body to a FIXED world anchor,
+    which cannot express "hangs from a point that is itself moving". Snapping the pan onto the
+    beam's end each step would express it, but a hard projection teleports the pan without the
+    beam ever feeling its weight -- and the load is the entire measurement. A penalty link
+    exchanges equal and opposite forces, so the beam is loaded by what its pans carry.
+
+    The attachment point sits ABOVE each pan's centre of mass, so gravity levels the pan on
+    its own. That is how a real balance keeps its pans flat through the swing, and it removes
+    the need for the angle stops that were previously holding the contents in.
+    """
+    i = wp.tid()
+    a = link_a[i]
+    b = link_b[i]
+    if a < 0 or b < 0:
+        return
+    pa = pos[a] + wp.quat_rotate(rot[a], local_a[i])
+    pb = pos[b] + wp.quat_rotate(rot[b], local_b[i])
+    d = pa - pb
+    ra = pa - pos[a]
+    rb = pb - pos[b]
+    va = vlin[a] + wp.cross(vang[a], ra)
+    vb = vlin[b] + wp.cross(vang[b], rb)
+    f = -stiff[i] * d - damp[i] * (va - vb)
+    wp.atomic_add(force, a, f)
+    wp.atomic_add(torque, a, wp.cross(ra, f))
+    wp.atomic_add(force, b, -f)
+    wp.atomic_add(torque, b, wp.cross(rb, -f))

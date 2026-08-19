@@ -9,8 +9,8 @@ import warp as wp
 
 from ..data.assets import decimate, load_asset
 from .diff_collide_6dof import integrate_6dof
-from .mesh_contact import (apply_revolute, ground_contact_mesh, pair_contact_mesh,
-                           vertex_weights, world_verts)
+from .mesh_contact import (apply_links, apply_revolute, ground_contact_mesh,
+                           pair_contact_mesh, vertex_weights, world_verts)
 
 
 class MeshProbeScene:
@@ -101,6 +101,8 @@ class MeshProbeScene:
                              dtype=wp.vec3)
         self._hinge_damp = wp.array(np.ones(self.N, np.float32), dtype=float)
         self._hinge_limit = wp.zeros(self.N, dtype=float)     # 0 = unlimited swing
+        self._links = []                                      # (a, b, local_a, local_b, k, c)
+        self._link_arrays = None
 
     def set_masses(self, m):
         m = np.asarray(m, np.float64).reshape(self.N)
@@ -119,7 +121,13 @@ class MeshProbeScene:
                 for c in range(3):
                     if a != c:
                         off[a, c] = -(P[:, a] * P[:, c] * w).sum()
-            G = (G + off) * m[b]
+            # PER-UNIT-MASS inertia. integrate_6dof forms the world inertia as
+            #     Iw = R * (mass * G) * R^T
+            # so G must NOT already carry the mass. Multiplying it in here made the inertia
+            # m^2*G_unit -- off by a factor of m, which for a 0.1 kg body is 10x too SMALL
+            # and gives ten times the angular acceleration it should. Bodies under a torque
+            # then wind up instead of settling.
+            G = G + off
             G += np.eye(3) * (1e-9 + 1e-6 * np.trace(G) / 3.0)   # keep it invertible
             Gs.append(G.astype(np.float32)); Gis.append(np.linalg.inv(G).astype(np.float32))
         self.G.assign(np.stack(Gs)); self.Ginv.assign(np.stack(Gis))
@@ -149,6 +157,25 @@ class MeshProbeScene:
         h = self.is_hinge.numpy(); h[bi] = 1; self.is_hinge.assign(h)
         a = self.anchor.numpy(); a[bi] = np.asarray(anchor, np.float32); self.anchor.assign(a)
         x = self.axis.numpy(); x[bi] = np.asarray(axis, np.float32); self.axis.assign(x)
+
+    def add_link(self, a, b, local_a, local_b, stiffness=4.0e4, damping=40.0):
+        """Suspend body `a` from body `b` by a stiff point-to-point spring.
+
+        `local_a` / `local_b` are attachment points in each body's own COM-centred frame. Put
+        the pan's point above its centre of mass and it hangs level without any constraint on
+        its orientation.
+        """
+        self._links.append((int(a), int(b), tuple(local_a), tuple(local_b),
+                            float(stiffness), float(damping)))
+        L = self._links
+        self._link_arrays = (
+            wp.array(np.array([x[0] for x in L], np.int32), dtype=int),
+            wp.array(np.array([x[1] for x in L], np.int32), dtype=int),
+            wp.array(np.array([x[2] for x in L], np.float32), dtype=wp.vec3),
+            wp.array(np.array([x[3] for x in L], np.float32), dtype=wp.vec3),
+            wp.array(np.array([x[4] for x in L], np.float32), dtype=float),
+            wp.array(np.array([x[5] for x in L], np.float32), dtype=float))
+        return len(L) - 1
 
     def calibrate_stiffness(self, pen_frac=0.005):
         """k_i so each body sinks pen_frac of its own size under its own weight.
@@ -182,6 +209,12 @@ class MeshProbeScene:
                           inputs=[self.world, self.body, self.mesh_ids, self.N,
                                   self.pos[t], self.rot[t], self.vlin[t], self.vang[t],
                                   self.k, self.cd, self.mu, self.weight, self.query_dist],
+                          outputs=[self.force, self.torque])
+            if self._link_arrays is not None:
+                la, lb, pa, pb, ks, cs = self._link_arrays
+                wp.launch(apply_links, len(self._links),
+                          inputs=[self.pos[t], self.rot[t], self.vlin[t], self.vang[t],
+                                  la, lb, pa, pb, ks, cs],
                           outputs=[self.force, self.torque])
             wp.launch(integrate_6dof, self.N,
                       inputs=[self.pos[t], self.rot[t], self.vlin[t], self.vang[t],
