@@ -52,12 +52,18 @@ Hallucination cannot enter θ: the judge only ranks motions we manufactured.
 
 | probe | reads | result | script |
 |---|---|---|---|
-| tilt | friction | 0.79° error, 3 cm–116 cm | `bigscene_sim.py`, `mesh_probes.py` |
-| balance | mass | **7/7**, brackets true mass | `probe_balance.py` |
+| tilt | friction (vs table) | 0.40° residual, 3 cm–116 cm | `bigscene_sim.py`, `mesh_probes.py` |
+| balance | **mass** of a real asset | 6/7, brackets 0.182 kg at [0.18, 0.22] | `probe_balance.py` |
 | bounce | damping | ρ = −0.995 | `probe_bounce_settle.py` |
 | settle | damping | ρ = +0.973 | `probe_bounce_settle.py` |
+| spin | friction (vs table) | ρ = −0.952 | `probe_spin_stack.py` |
+| stack | friction **between objects** | ρ = +0.994, residual 2.41° | `probe_spin_stack.py` |
 | cloth drape | stiffness | ρ = −0.786, saturated at soft end | `probe_deformable.py` |
 | soft press | stiffness | **diverges** | `probe_deformable.py` |
+
+Legacy probes in `joint_fit.py` (`drop`, three `collide` variants, `shove`) predate the mesh
+solver and none of their numbers survive. The `collide` family measures nothing by
+construction.
 
 ### The judge is the bottleneck, and is unchanged
 
@@ -86,6 +92,15 @@ counts 1–2 against a true 1–21. Three fits of the same object gave densities
   mesh should be a regular grid.
 - **Coarsening a timestep to speed a render changes results.** Balance went 7/7 → 4/7 when
   substeps were cut 60 → 24 for a render pass.
+- **Inertia carried mass twice.** `set_masses` stored `G = G_unit · m` while `integrate_6dof`
+  forms `Iw = R (m·G) Rᵀ`, so inertia was `m²·G_unit` — for a 0.1 kg body, ten times too
+  little, and ten times the angular acceleration. Fixed; it also improved the tilt probe
+  (residual 0.79° → 0.40°).
+- **Relative motion must be measured in the moving body's own frame.** The stack probe took
+  `top − base` in world coordinates, so the base rotating with the ramp read as sliding and
+  every case collapsed the instant the table moved (ρ +0.933 → +0.994).
+- **Contact coefficients combine as a geometric mean**, so a body slips at
+  `atan(sqrt(μ_body·μ_table))`, not `atan(μ_body)`.
 
 ## Next, in order
 
