@@ -7,3 +7,15 @@ assets/cloth/
 assets/scenes/
 .claude/
 assets/soft/
+
+# Generated media. All of it is regenerable:
+#   docs/iters/*.html   scripts/iter_report.py   (6-7 MB each: GIFs embedded as base64)
+#   docs/videos/*       blender_render_scene.py + ffmpeg
+# Committing them grows the history on every re-render for no gain over rerunning the script.
+# Every docs/*.html is a generated report page with media embedded as base64 -- they run
+# 0.4-7 MB each and are rewritten wholesale on each regeneration, so they bloat history
+# without ever diffing usefully. The WRITTEN record lives in docs/*.md, which is what
+# CLAUDE.md points at; the pages are republished as artifacts anyway.
+docs/*.html
+docs/iters/
+docs/videos/
